@@ -93,9 +93,13 @@ def _jup_headers():
 
 
 def quote(in_mint, out_mint, amount, slippage_bps):
-    r = requests.get(f"{config.JUPITER_URL}/quote", headers=_jup_headers(), timeout=15,
-                     params={"inputMint": in_mint, "outputMint": out_mint, "amount": int(amount), "slippageBps": int(slippage_bps),
-                             "restrictIntermediateTokens": "true"})
+    for attempt in range(4):
+        r = requests.get(f"{config.JUPITER_URL}/quote", headers=_jup_headers(), timeout=15,
+                         params={"inputMint": in_mint, "outputMint": out_mint, "amount": int(amount), "slippageBps": int(slippage_bps),
+                                 "restrictIntermediateTokens": "true"})
+        if r.status_code != 429:   # limite de pedidos da API gratuita: espera e repete
+            break
+        time.sleep(1.5 * (attempt + 1))
     if r.status_code != 200:
         raise ChainError(f"cotacao recusada ({r.status_code}): {r.text[:120]}")
     return r.json()
@@ -110,9 +114,13 @@ def sol_price_usd(_cache={}):
 
 
 def build_swap(owner, quote_resp):
-    r = requests.post(f"{config.JUPITER_URL}/swap", headers=_jup_headers(), timeout=20,
-                      json={"quoteResponse": quote_resp, "userPublicKey": owner, "dynamicComputeUnitLimit": True,
-                            "prioritizationFeeLamports": {"priorityLevelWithMaxLamports": {"maxLamports": config.DEX_PRIORITY_LAMPORTS, "priorityLevel": "high"}}})
+    for attempt in range(4):
+        r = requests.post(f"{config.JUPITER_URL}/swap", headers=_jup_headers(), timeout=20,
+                          json={"quoteResponse": quote_resp, "userPublicKey": owner, "dynamicComputeUnitLimit": True,
+                                "prioritizationFeeLamports": {"priorityLevelWithMaxLamports": {"maxLamports": config.DEX_PRIORITY_LAMPORTS, "priorityLevel": "high"}}})
+        if r.status_code != 429:
+            break
+        time.sleep(1.5 * (attempt + 1))
     if r.status_code != 200:
         raise ChainError(f"swap recusado ({r.status_code}): {r.text[:120]}")
     j = r.json()

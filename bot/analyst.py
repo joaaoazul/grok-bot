@@ -52,6 +52,11 @@ def review_dex(ctx):
     return _chat(DEX_SELL, ctx)
 
 
+if config.DEX_PROFILE == "aggressive":
+    DEX_SYSTEM += """
+PERFIL AGRESSIVO: o dono do bot quer participar em moedas com potencial de subir e aceita risco alto e perdas frequentes, com ordens pequenas e stop de 10%. Por isso: o "skip" e para fraude provavel, falta de saida, queda forte em curso ou sinal ambiguo sem nada a favor; NAO e para "ja subiu um pouco", "e nova", "historia curta" ou "algum risco". Responde "buy" quando houver momentum real (compras a dominar, volume a acelerar, preco a fazer maximos, liquidez estavel ou a subir), mesmo que a moeda seja muito recente ou ja tenha subido bem na ultima hora, se ainda houver espaco ate ao alvo. Confianca de 0,45 ou mais chega. Escolhe o tamanho e o alvo pelo risco: ordem pequena e alvo curto quando o sinal e fraco, ordem maior e alvo alto quando e forte. As protecoes automaticas (stop, saida por perigo) ja limitam a perda, por isso nao precisas de ser o travao."""
+
+
 def analyse_dex(candidate, memory=None):
     user = {"candidata": candidate}
     if memory:
