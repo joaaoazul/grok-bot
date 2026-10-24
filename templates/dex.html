@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grok Trader: DEX</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='dex.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">Grok Trader <span>DEX</span></div>
+    <span class="tag" id="modeTag">-</span>
+    <span class="status"><i class="dot" id="statusDot"></i><span id="statusText">a ligar...</span></span>
+    <span class="spacer"></span>
+    <span class="wallet" id="wallet" hidden></span>
+    <button id="toggle" type="button">Ligar</button>
+    <button id="panic" type="button" class="danger" hidden>Panico: vender tudo</button>
+    <a class="navlink" href="/">Binance</a>
+  </header>
+  <div class="banner" id="banner"></div>
+
+  <section class="strip" aria-label="Resumo">
+    <div class="stat"><span class="k">Valor total</span><b id="tEquity">-</b><span class="sub" id="tStart"></span></div>
+    <div class="stat"><span class="k">Resultado total</span><b id="tPnl">-</b><span class="sub" id="tPnlSub"></span></div>
+    <div class="stat"><span class="k">Hoje</span><b id="tToday">-</b><span class="sub" id="tTodaySub"></span></div>
+    <div class="stat"><span class="k">Caixa livre</span><b id="tCash">-</b></div>
+    <div class="stat"><span class="k">Posicoes</span><b id="tPos">-</b><span class="sub" id="tPosSub"></span></div>
+    <div class="stat"><span class="k">Taxa de acerto</span><b id="tWin">-</b><span class="sub" id="tWinSub"></span></div>
+    <div class="stat"><span class="k">Ultima procura</span><b id="tScan">-</b><span class="sub" id="tScanSub"></span></div>
+  </section>
+
+  <main class="layout">
+    <section class="maincol">
+      <div class="panel chartpanel">
+        <div class="chead">
+          <div class="ctitle"><b id="cName">Escolhe uma moeda</b> <span class="pill" id="cNet"></span> <span class="pill" id="cTag"></span></div>
+          <div class="cprice"><b id="cPrice"></b> <span id="cChg"></span></div>
+          <div class="clinks" id="cLinks"></div>
+        </div>
+        <div id="chart" role="img" aria-label="Grafico de velas de 1 minuto da moeda escolhida"></div>
+        <div class="legend" id="cLegend">Velas de 1 minuto. As linhas mostram a entrada, o stop e o alvo da posicao.</div>
+      </div>
+
+      <div class="panel tabs">
+        <div class="tabbar" role="tablist">
+          <button class="tab on" data-tab="positions" role="tab">Posicoes <i id="nPositions"></i></button>
+          <button class="tab" data-tab="closed" role="tab">Operacoes <i id="nClosed"></i></button>
+          <button class="tab" data-tab="analysed" role="tab">Analises do Grok <i id="nAnalysed"></i></button>
+          <button class="tab" data-tab="scans" role="tab">Procuras</button>
+          <button class="tab" data-tab="log" role="tab">Registo</button>
+          <span class="spacer"></span>
+          <select id="decision" aria-label="Filtrar por decisao" hidden>
+            <option value="">Todas as decisoes</option><option value="compra">Compra</option><option value="dry-run">Dry-run</option>
+            <option value="skip">Skip</option><option value="rejeitada">Rejeitada</option><option value="recusada">Recusada</option>
+          </select>
+          <input id="search" type="search" placeholder="Pesquisar..." aria-label="Pesquisar nos registos">
+        </div>
+        <div class="scroll" id="tabBody"></div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="panel"><h3>Em carteira</h3><div id="watchPos" class="watch"></div></div>
+      <div class="panel"><h3>Detalhe</h3><div id="detail" class="detail"></div></div>
+      <div class="panel"><h3>Valor da conta (USD)</h3><div id="eqChart"></div><p class="muted" id="eqEmpty" hidden>O grafico aparece depois de dois registos (um por minuto).</p></div>
+      <div class="panel"><h3>Analisadas agora</h3><div id="watchAn" class="watch"></div></div>
+    </aside>
+  </main>
+
+  <p class="muted disclaimer" id="disclaimer"></p>
+  <script src="{{ url_for('static', filename='dex.js') }}"></script>
+</body>
+</html>
