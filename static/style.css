@@ -1,40 +1,77 @@
 :root {
   --bg: #0e1116; --card: #171b22; --line: #262c36; --text: #e6e9ee; --muted: #8b94a3;
-  --accent: #4f8cff; --buy: #2ebd85; --sell: #f6465d; --warn: #f0b90b;
+  --accent: #4f8cff; --series: #3987e5; --good: #0ca30c; --bad: #d03b3b; --warn: #f0b90b;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; padding: 0 16px 32px; }
-header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; max-width: 960px; margin: 0 auto; padding: 20px 0 8px; }
+header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; max-width: 1040px; margin: 0 auto; padding: 20px 0 8px; }
 h1 { font-size: 20px; margin: 0; }
 h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .muted { color: var(--muted); font-size: 13px; }
 .tag { padding: 2px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; background: var(--line); }
 .tag.paper { background: #1f3a63; color: #9cc2ff; }
 .tag.live { background: #5c1d27; color: #ff9aa8; }
-.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 960px; margin: 12px auto; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.tag.ws-on { background: #123a1a; color: #7fe08a; }
+.tag.ws-off { background: var(--line); color: var(--muted); }
+
+.navlink { margin-left: auto; color: var(--accent); text-decoration: none; font-size: 14px; }
+.navlink:hover { text-decoration: underline; }
+.banner { max-width: 1040px; margin: 8px auto; padding: 10px 14px; border-radius: 10px; background: #1f3a63; color: #cfe1ff; font-size: 14px; }
+.tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; max-width: 1040px; margin: 12px auto; }
+.tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tile .k { color: var(--muted); font-size: 12px; }
+.tile b { font-size: 20px; font-variant-numeric: tabular-nums; font-weight: 650; }
+.tile .sub { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.meter { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin: 4px 0 2px; }
+.meter i { display: block; height: 100%; width: 0; background: var(--series); border-radius: 3px; }
+.meter i.hot { background: var(--bad); }
+
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 1040px; margin: 12px auto; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
 .wide { grid-column: 1 / -1; }
+.row { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+.row h2 { margin: 0 auto 0 0; }
+.row select { width: auto; margin: 0; }
+.chart { position: relative; height: 260px; }
+.empty { margin: 8px 0 0; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.legend .sw { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--series); vertical-align: middle; margin-right: 4px; }
+.legend .sw.dash { border-top: 2px dashed var(--muted); }
+.tri.up { color: var(--good); } .tri.down { color: var(--bad); }
+
 .stats { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 12px 0; }
-.stats dt, .stats .k { color: var(--muted); }
+.stats dt { color: var(--muted); }
 .stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 select, textarea, button { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); padding: 8px 12px; width: 100%; }
 textarea { resize: vertical; margin-bottom: 10px; }
-select { margin-bottom: 4px; }
 button { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; cursor: pointer; }
 button:disabled { opacity: .5; cursor: wait; }
 button.ghost { background: transparent; color: var(--muted); border-color: var(--line); }
-button.buy { background: var(--buy); border-color: var(--buy); }
-button.sell { background: var(--sell); border-color: var(--sell); }
+button.buy { background: var(--good); border-color: var(--good); }
+button.sell { background: var(--bad); border-color: var(--bad); }
+button.on { background: var(--bad); border-color: var(--bad); }
 .actions { display: flex; gap: 8px; margin-top: 14px; }
 .badge { display: inline-block; padding: 2px 12px; border-radius: 6px; font-weight: 700; text-transform: uppercase; }
-.badge.buy { background: var(--buy); } .badge.sell { background: var(--sell); } .badge.hold { background: var(--line); }
+.badge.buy { background: var(--good); } .badge.sell { background: var(--bad); } .badge.hold { background: var(--line); }
 .blocked { color: var(--warn); margin-top: 8px; }
-.error { color: var(--sell); }
-button.on { background: var(--sell); border-color: var(--sell); }
-#autoLog td:first-child { color: var(--muted); white-space: nowrap; width: 1%; padding-right: 12px; }
-#autoLog tr.buy td:nth-child(2) { color: var(--buy); } #autoLog tr.sell td:nth-child(2) { color: var(--sell); }
-#autoLog tr.alert td:nth-child(2), #autoLog tr.error td:nth-child(2) { color: var(--warn); }
-.disclaimer { max-width: 960px; margin: 0 auto; }
+.error { color: var(--bad); }
+.disclaimer { max-width: 1040px; margin: 0 auto; }
+
+.scroll { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
-td, th { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); }
-@media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+th { color: var(--muted); font-weight: 500; }
+td, th { text-align: left; padding: 6px 12px 6px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+td.why { white-space: normal; min-width: 220px; color: var(--muted); }
+tr.click { cursor: pointer; } tr.click:hover td { background: #1c212a; }
+.up { color: var(--good); } .down { color: var(--bad); }
+#autoLog td:first-child { color: var(--muted); width: 1%; }
+#autoLog td { white-space: normal; }
+#autoLog tr.buy td:nth-child(2) { color: var(--good); } #autoLog tr.sell td:nth-child(2) { color: var(--bad); }
+#autoLog tr.alert td:nth-child(2), #autoLog tr.error td:nth-child(2) { color: var(--warn); }
+
+@media (max-width: 760px) {
+  .tiles { grid-template-columns: repeat(2, 1fr); }
+  .grid { grid-template-columns: 1fr; }
+  .chart { height: 220px; }
+}

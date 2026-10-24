@@ -1,4 +1,4 @@
-from . import config, ledger
+from . import config, ledger, scanner
 
 
 def validate(proposal, broker):
@@ -7,7 +7,9 @@ def validate(proposal, broker):
     symbol = proposal.get("symbol")
     if side not in ("buy", "sell"):
         return None, "Sem ordem (hold)."
-    if symbol not in config.SYMBOLS:
+    held = broker.portfolio()["positions"].get(str(symbol).split("/")[0], 0.0) > 0
+    # Vender o que ja se tem e sempre permitido, mesmo que a moeda ja nao esteja no scanner
+    if not scanner.is_allowed(symbol) and not (side == "sell" and held):
         return None, f"{symbol} nao esta na lista permitida."
     try:
         usdt = float(proposal.get("usdt", 0))

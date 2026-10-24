@@ -5,38 +5,71 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grok Trader</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
 <body>
   <header>
     <h1>Grok Trader</h1>
     <span class="tag" id="mode">...</span>
+    <span class="tag ws-off" id="liveTag" title="Precos em tempo real, direto da Binance">○ a ligar</span>
     <span class="muted">{{ model }} · max {{ max_order }} USDT por ordem</span>
+    <a class="navlink" href="/dex">Memecoins (simulacao) →</a>
   </header>
 
+  <div class="tiles">
+    <div class="tile"><span class="k">Valor da carteira</span><b id="tEquity">-</b><span class="sub" id="tEquitySub"></span></div>
+    <div class="tile"><span class="k">USDT livre</span><b id="tUsdt">-</b></div>
+    <div class="tile"><span class="k">Resultado hoje</span><b id="tDay">-</b><span class="sub" id="tDaySub"></span></div>
+    <div class="tile"><span class="k">Em posicoes</span><b id="tExp">-</b><span class="sub" id="tExpSub"></span></div>
+    <div class="tile"><span class="k">Perda do dia vs limite</span><b id="tLoss">-</b>
+      <div class="meter"><i id="tLossBar"></i></div><span class="sub" id="tLossSub"></span></div>
+  </div>
+
   <div class="grid">
-    <section class="card">
-      <h2>Mercado</h2>
-      <select id="symbol">
-        {% for s in symbols %}<option>{{ s }}</option>{% endfor %}
-      </select>
+    <section class="card wide">
+      <h2>Evolucao do valor da carteira (USDT)</h2>
+      <div class="chart"><canvas id="equityChart" role="img" aria-label="Valor da carteira ao longo do tempo"></canvas></div>
+      <p class="muted empty" id="equityEmpty" hidden>A recolher dados. O grafico aparece depois de dois registos (um por minuto).</p>
+    </section>
+
+    <section class="card wide">
+      <h2>Ativos em carteira</h2>
+      <div class="scroll"><table id="positions"></table></div>
+    </section>
+
+    <section class="card wide">
+      <div class="row">
+        <h2>Preco</h2>
+        <select id="symbol" aria-label="Moeda"></select>
+        <select id="tf" aria-label="Intervalo">
+          <option value="5m">5 min</option><option value="15m" selected>15 min</option>
+          <option value="1h">1 hora</option><option value="4h">4 horas</option>
+        </select>
+      </div>
+      <div class="legend">
+        <span><i class="sw line"></i> Preco</span>
+        <span><i class="sw dash"></i> Entrada media</span>
+        <span><b class="tri up">▲</b> Compra</span>
+        <span><b class="tri down">▼</b> Venda</span>
+      </div>
+      <div class="chart"><canvas id="priceChart" role="img" aria-label="Preco da moeda com as compras e vendas do bot"></canvas></div>
+    </section>
+
+    <section class="card wide">
+      <h2>Mercado e analise</h2>
       <dl id="market" class="stats"></dl>
       <textarea id="question" rows="2" placeholder="Pergunta opcional (ex: devo comprar na queda?)"></textarea>
       <button id="analyse" type="button">Pedir analise ao Grok</button>
     </section>
 
-    <section class="card">
-      <h2>Carteira</h2>
-      <div id="portfolio" class="stats"></div>
-    </section>
-
     <section class="card wide">
       <h2>Modo automatico</h2>
-      <p class="muted">O Grok analisa todos os pares a cada {{ interval // 60 }} min e opera sozinho dentro dos limites: stop-loss {{ stop_loss }}%, take-profit {{ take_profit }}%, perda diaria maxima {{ max_loss }} USDT (fecha tudo e pausa ate amanha).</p>
+      <p class="muted">O Grok analisa as moedas com mais momentum a cada {{ interval // 60 }} min e opera sozinho dentro dos limites: stop-loss {{ stop_loss }}%, take-profit {{ take_profit }}%, perda diaria maxima {{ max_loss }} USDT (fecha tudo e pausa ate amanha).</p>
       <div class="actions">
         <button id="autoToggle" type="button">Ligar modo automatico</button>
       </div>
       <p class="muted" id="autoState"></p>
-      <table id="autoLog"></table>
+      <div class="scroll"><table id="autoLog"></table></div>
     </section>
 
     <section class="card wide" id="result" hidden>
@@ -49,8 +82,8 @@
     </section>
 
     <section class="card wide">
-      <h2>Ultimas ordens</h2>
-      <div id="trades" class="muted">Sem ordens.</div>
+      <h2>Historico de ordens</h2>
+      <div class="scroll"><table id="trades"></table></div>
     </section>
   </div>
 

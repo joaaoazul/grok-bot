@@ -7,7 +7,7 @@ from datetime import date
 
 from . import config, market
 
-_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "state.json")
+_PATH = os.path.join(config.DATA_DIR, "state.json")
 _lock = threading.RLock()
 
 
@@ -28,11 +28,19 @@ def equity(broker):
     """USDT livre + valor de mercado das posicoes nos pares permitidos."""
     p = broker.portfolio()
     total = p["USDT"]
+    tracked = tracked_symbols()
     for base, qty in p["positions"].items():
         symbol = f"{base}/USDT"
-        if symbol in config.SYMBOLS:
-            total += qty * market.price(symbol)
+        last = (market.tickers().get(symbol) or {}).get("last")
+        if symbol in tracked and last:
+            total += qty * last
     return total
+
+
+def tracked_symbols():
+    """Pares que o bot opera: os que ja comprou e os da lista base. Ignora o resto da carteira (ex: BNB)."""
+    with _lock:
+        return set(_load()["cost"]) | set(config.SYMBOLS)
 
 
 def exposure(broker):
@@ -58,19 +66,37 @@ def entry(symbol):
     return (pos["avg"], pos["qty"]) if pos and pos["qty"] > 0 else None
 
 
+def update_peak(symbol, price):
+    """Maximo atingido desde a entrada (base do trailing stop)."""
+    with _lock:
+        s = _load()
+        pos = s["cost"].get(symbol)
+        if not pos or pos["qty"] <= 0:
+            return price
+        pos["peak"] = max(pos.get("peak", price), price)
+        _save(s)
+        return pos["peak"]
+
+
 def seconds_since_trade(symbol):
     with _lock:
         ts = _load()["last_trade"].get(symbol)
     return None if ts is None else time.time() - ts
 
 
-def record(side, symbol, qty, price):
+def state():
+    with _lock:
+        return _load()
+
+
+def record(side, symbol, qty, price, why=""):
     """Atualiza custo medio e PnL realizado. Devolve o PnL realizado desta ordem (0 nas compras)."""
     with _lock:
         s = _load()
         pos = s["cost"].get(symbol, {"qty": 0.0, "avg": 0.0})
         pnl = 0.0
         if side == "buy":
+            pos["peak"] = price if pos["qty"] <= 0 else max(pos.get("peak", price), price)
             total = pos["qty"] + qty
             pos["avg"] = (pos["avg"] * pos["qty"] + price * qty) / total
             pos["qty"] = total
@@ -81,5 +107,9 @@ def record(side, symbol, qty, price):
             s["realized_today"] = s.get("realized_today", 0.0) + pnl
         s["cost"][symbol] = pos
         s["last_trade"][symbol] = time.time()
+        trades = s.setdefault("trades", [])
+        trades.append({"ts": int(time.time()), "side": side, "symbol": symbol, "price": price, "qty": qty,
+                       "usdt": round(qty * price, 2), "pnl": round(pnl, 2), "why": why})
+        s["trades"] = trades[-500:]
         _save(s)
         return pnl

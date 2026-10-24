@@ -8,7 +8,7 @@ import ccxt
 from . import config, market
 
 _lock = threading.Lock()
-_STATE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "paper.json")
+_STATE = os.path.join(config.DATA_DIR, "paper.json")
 
 
 class PaperBroker:
@@ -61,9 +61,19 @@ class LiveBroker:
     def __init__(self):
         if not (config.BINANCE_KEY and config.BINANCE_SECRET):
             raise RuntimeError("BINANCE_API_KEY/SECRET em falta para TRADING_MODE=live.")
-        self.ex = ccxt.binance({"apiKey": config.BINANCE_KEY, "secret": config.BINANCE_SECRET, "enableRateLimit": True})
+        # adjustForTimeDifference sincroniza com o relogio da Binance (erro -1021 quando o PC esta desfasado)
+        self.ex = ccxt.binance({
+            "apiKey": config.BINANCE_KEY,
+            "secret": config.BINANCE_SECRET,
+            "enableRateLimit": True,
+            "options": {"adjustForTimeDifference": True, "recvWindow": 10000},
+        })
         if config.TESTNET:
             self.ex.set_sandbox_mode(True)
+        # A Binance rejeita timestamps adiantados em mais de 1s (recvWindow so cobre atrasos),
+        # por isso mede o desfasamento ja e recua o relogio 1s a mais como margem.
+        self.ex.load_time_difference()
+        self.ex.options["timeDifference"] = (self.ex.options.get("timeDifference") or 0) + 1000
 
     def balance_usdt(self):
         return self.ex.fetch_balance()["free"].get("USDT", 0.0)
