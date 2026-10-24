@@ -1,3 +1,4 @@
+import os
 import time
 from flask import Flask, jsonify, render_template, request
 
@@ -190,4 +191,6 @@ if __name__ == "__main__":
             auto.start()
         except RuntimeError as exc:
             print(f"Modo automatico nao arrancou: {exc}")
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    port = int(os.getenv("PORT", "5000"))   # no Mac a 5000 costuma estar o AirPlay (responde 403): usa PORT=5001
+    print(f"A abrir em http://127.0.0.1:{port}")
+    app.run(host="127.0.0.1", port=port, debug=False)

@@ -33,6 +33,8 @@ python app.py
 
 e abre http://127.0.0.1:5000 (Binance) ou http://127.0.0.1:5000/dex (DEX).
 
+Se o browser der **403** ou "sem autorização" em `localhost:5000`, a porta 5000 está ocupada por outro programa (no Mac é o AirPlay Receiver). Usa outra porta, por exemplo `PORT=5001 python app.py` (no Windows PowerShell: `$env:PORT=5001; python app.py`) e abre http://127.0.0.1:5001.
+
 ## Modos
 
 | Variável | Valor | O que faz |
