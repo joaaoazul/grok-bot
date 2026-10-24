@@ -45,12 +45,9 @@ def sol_balance(owner):
 
 def token_balance(owner, mint):
     """Saldo bruto (unidades inteiras) do token na carteira. 0 se nao tem conta."""
-    total = 0
-    for prog in (TOKEN_PROGRAM, TOKEN_2022):
-        res = _rpc("getTokenAccountsByOwner", [owner, {"mint": mint, "programId": prog}, {"encoding": "jsonParsed", "commitment": "confirmed"}])
-        for acc in res["value"]:
-            total += int(acc["account"]["data"]["parsed"]["info"]["tokenAmount"]["amount"])
-    return total
+    # A rede so aceita um filtro de cada vez: por token apanha as contas dos dois programas (Token e Token-2022)
+    res = _rpc("getTokenAccountsByOwner", [owner, {"mint": mint}, {"encoding": "jsonParsed", "commitment": "confirmed"}])
+    return sum(int(acc["account"]["data"]["parsed"]["info"]["tokenAmount"]["amount"]) for acc in res["value"])
 
 
 def mint_info(mint):
