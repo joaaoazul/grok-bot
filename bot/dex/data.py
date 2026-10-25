@@ -79,9 +79,14 @@ def token_info(network, token):
     }
 
 
-def candles(network, pool, limit=60):
-    """Velas de 1 minuto, da mais antiga para a mais recente: [t, o, h, l, c, v]."""
-    rows = _get(f"/networks/{network}/pools/{pool}/ohlcv/minute", aggregate=1, limit=limit)["data"]["attributes"]["ohlcv_list"]
+# intervalo -> (unidade, agregacao) aceites pela GeckoTerminal
+TIMEFRAMES = {"1m": ("minute", 1), "5m": ("minute", 5), "15m": ("minute", 15), "1h": ("hour", 1), "4h": ("hour", 4), "1d": ("day", 1)}
+
+
+def candles(network, pool, limit=60, tf="1m"):
+    """Velas do intervalo `tf` (1m por defeito), da mais antiga para a mais recente: [t, o, h, l, c, v]."""
+    unit, agg = TIMEFRAMES[tf]
+    rows = _get(f"/networks/{network}/pools/{pool}/ohlcv/{unit}", aggregate=agg, limit=limit)["data"]["attributes"]["ohlcv_list"]
     return sorted(rows, key=lambda r: r[0])
 
 

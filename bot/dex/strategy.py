@@ -9,7 +9,7 @@ from collections import Counter, deque
 from datetime import datetime
 
 from .. import analyst, config
-from . import data, fx
+from . import data, fx, signals
 from .sim import DexPaper, net_value
 
 
@@ -30,7 +30,7 @@ def _momentum(p):
     b, s = h1.get("buyers") or 0, h1.get("sellers") or 0
     pressure = ((b / (b + s)) - 0.5) * 4 if b + s else 0
     m5 = max(-5.0, min(5.0, (p["chg"].get("m5") or 0))) / 5
-    return chg + accel + pressure + m5
+    return chg + accel + pressure + m5 + 2 * signals.surge(p)    # volume de compra a acelerar em 5 min e 1 h sobe a candidata na fila
 
 
 def _num(x):
@@ -57,6 +57,9 @@ class DexBot:
             self.sim = DexPaper()
             self.networks = config.DEX_NETWORKS
         self.enabled = False
+        self.cycles = 0
+        self.activity = {"kind": "idle", "what": ""}   # idle | scan | think
+        self._scanning = False
         self.log = deque(maxlen=150)
         self.funnel = {}
         self.last_scan = None
@@ -74,6 +77,7 @@ class DexBot:
         self._fresh = {}     # id -> ultimos dados da pool
         self._reviewed = {}  # id -> ultima reavaliacao de saida pelo Grok
         self._reviewing = set()
+        self._exit_lock = threading.RLock()   # evita vender a mesma posicao duas vezes (vigilante + botao)
 
     def _note(self, p, decision, reason="", **extra):
         """Guarda cada moeda analisada com a decisao e os numeros que a justificam, para a pagina de pesquisas."""
@@ -103,6 +107,13 @@ class DexBot:
                 self._wallet["t"] = time.time() - 10   # tenta de novo daqui a 10 s
         return {k: v for k, v in self._wallet.items() if k != "t"} or {"address": self.live.owner}
 
+    def _set(self, kind, what=""):
+        self.activity = {"kind": kind, "what": what}
+
+    def _rest(self):
+        """Volta ao estado de fundo: a procurar se houver uma procura a decorrer, senao em repouso."""
+        self._set("scan", "a procurar pools") if self._scanning else self._set("idle")
+
     def _say(self, msg, kind="info"):
         self.log.appendleft({"t": datetime.now().strftime("%H:%M:%S"), "kind": kind, "msg": msg})
 
@@ -129,11 +140,17 @@ class DexBot:
 
     def _scan_loop(self):
         while not self._stop.is_set():
+            self._scanning = True
+            self._set("scan", "a procurar pools")
             try:
                 self.scan()
             except Exception as exc:
                 self._say(f"Erro na procura: {exc}", "error")
+            finally:
+                self._scanning = False
+                self._rest()
             self.last_scan = datetime.now().strftime("%H:%M:%S")
+            self.cycles += 1
             self._stop.wait(config.DEX_SCAN_SEC)
 
     def _guard_loop(self):
@@ -317,12 +334,18 @@ class DexBot:
         candle_summary = {"velas": len(closes), "var_total_pct": round((closes[-1] / closes[0] - 1) * 100, 1),
                           "var_ultimos_5m_pct": round((closes[-1] / closes[-6] - 1) * 100, 1), "queda_maxima_pct": round(max_dd, 1),
                           "volume_ultimos_10m_usd": round(sum(r[5] for r in rows[-10:]))}
+        sig = signals.compute(p)
         feat = {"pool": {k: p[k] for k in ("name", "network", "dex", "price", "liq", "fdv", "vol", "tx", "chg")} | {"idade_min": round(p["age_min"]),
                                                                                     "tipo": "com historia" if p["age_min"] > config.DEX_OLD_AFTER_H * 60 else "nova"},
-                "seguranca": info, "velas_1m": candle_summary,
+                "seguranca": info, "velas_1m": candle_summary, "sinais_dexscreener": sig,
                 "limites": {"ordem_min_eur": config.DEX_MIN_SIZE_EUR, "ordem_max_eur": config.DEX_MAX_SIZE_EUR,
-                            "alvo_min_pct": config.DEX_TP_MIN_PCT, "alvo_max_pct": config.DEX_TP_MAX_PCT}}
-        proposal = analyst.analyse_dex(feat, self._memory())
+                            "alvo_min_pct": config.DEX_TP_MIN_PCT, "alvo_max_pct": config.DEX_TP_MAX_PCT,
+                            "stop_min_pct": config.DEX_STOP_MIN_PCT, "stop_max_pct": config.DEX_STOP_MAX_PCT}}
+        self._set("think", f"a analisar {p['name']} com o Grok")
+        try:
+            proposal = analyst.analyse_dex(feat, self._memory())
+        finally:
+            self._rest()
         conf = float(proposal.get("confidence") or 0)
         reason = str(proposal.get("reason", ""))
         if proposal.get("action") != "buy" or conf < config.DEX_MIN_CONF:
@@ -339,7 +362,11 @@ class DexBot:
             self._say(f"{p['name']}: sem saldo virtual para a ordem minima de {config.DEX_MIN_SIZE_EUR:g} EUR.")
             return
         target = min(max(_num(proposal.get("target_pct")) or config.DEX_TP_DEFAULT_PCT, config.DEX_TP_MIN_PCT), config.DEX_TP_MAX_PCT)
-        feats = {**feat["pool"], "seguranca": info, "velas_1m": candle_summary}
+        # Stop proprio desta compra: o Grok propoe, a conviccao (confianca, tamanho, volume de compra) limita
+        hi_eur = min(config.DEX_MAX_SIZE_EUR, config.DEX_BUDGET_EUR) if self.live else config.DEX_MAX_SIZE_EUR
+        conv = signals.conviction(conf, size / rate, config.DEX_MIN_SIZE_EUR, hi_eur, sig["forca_compra"])
+        stop = signals.stop_pct(_num(proposal.get("stop_pct")), conv)
+        feats = {**feat["pool"], "seguranca": info, "velas_1m": candle_summary, "sinais": sig}
         fill = None
         if self.live:
             if self._live_blocked():
@@ -354,13 +381,14 @@ class DexBot:
                 sim_txt = "OK" if fill["sim_ok"] else "FALHOU: " + str(fill["sim_err"])
                 self._say(f"[DRY-RUN] {p['name']}: {size / rate:.2f} EUR -> ~{fill['tokens']:.4g} tokens, impacto {fill['impact']:.1f}%, "
                           f"ida e volta perde {fill['roundtrip_loss']:.1f}%, simulacao {sim_txt}. Nada enviado.", "buy")
-                self._note(p, "dry-run", reason, confidence=conf, size_eur=round(size / rate, 2), target_pct=target, seguranca=info, velas=candle_summary)
+                self._note(p, "dry-run", reason, confidence=conf, size_eur=round(size / rate, 2), target_pct=target, stop_pct=stop, conviction=conv,
+                           sinais=sig, seguranca=info, velas=candle_summary)
                 return
-        pos = self.sim.buy(p, size, feats, conf, reason, target, fill=fill)
-        self._note(p, "compra" if pos else "sem_saldo", reason, confidence=conf, size_eur=round(size / rate, 2), target_pct=target,
+        pos = self.sim.buy(p, size, feats, conf, reason, target, fill=fill, stop_pct=stop, conviction=conv)
+        self._note(p, "compra" if pos else "sem_saldo", reason, confidence=conf, size_eur=round(size / rate, 2), target_pct=target, stop_pct=stop, conviction=conv, sinais=sig,
                    risks=str(proposal.get("risks", ""))[:300], seguranca=info, velas=candle_summary)
         if pos:
-            self._say(f"COMPRA {p['name']} ({p['network']}): {size / rate:.2f} EUR ({size:.2f} USD) virtuais, alvo +{target:.0f}%, idade {p['age_min']:.0f} min, liquidez {p['liq']:,.0f} USD. {reason}", "buy")
+            self._say(f"COMPRA {p['name']} ({p['network']}): {size / rate:.2f} EUR ({size:.2f} USD) virtuais, alvo +{target:.0f}%, stop -{stop:.1f}% (conviccao {conv:.0%}, volume de compra {sig['classe']}), idade {p['age_min']:.0f} min, liquidez {p['liq']:,.0f} USD. {reason}", "buy")
 
     # ---------- saidas ----------
     def guard(self):
@@ -411,10 +439,12 @@ class DexBot:
                            "compras_vendas_5m": [(tx.get("m5") or {}).get("buyers"), (tx.get("m5") or {}).get("sellers")],
                            "compras_vendas_1h": [(tx.get("h1") or {}).get("buyers"), (tx.get("h1") or {}).get("sellers")],
                            "volume_5m": vol.get("m5"), "volume_1h": vol.get("h1"),
-                           "liquidez_atual": pos["last_liq"], "liquidez_na_entrada": pos["entry_liq"]}}
+                           "liquidez_atual": pos["last_liq"], "liquidez_na_entrada": pos["entry_liq"]},
+               "sinais_dexscreener": signals.compute(f) if f else None}
         threading.Thread(target=self._review, args=(pid, ctx), daemon=True).start()
 
     def _review(self, pid, ctx):
+        self._set("think", "a reavaliar a saida de uma posicao")
         try:
             r = analyst.review_dex(ctx)
             if pid in self.sim.s["positions"] and r.get("action") == "sell" and float(r.get("confidence") or 0) >= 0.5:
@@ -423,6 +453,7 @@ class DexBot:
             self._say(f"Reavaliacao de saida: {exc}", "error")
         finally:
             self._reviewing.discard(pid)
+            self._rest()
 
     def _danger(self, pos, fresh):
         """Sinais de problema numa posicao aberta. Se houver um, o bot vende logo em vez de esperar pelo stop."""
@@ -462,8 +493,9 @@ class DexBot:
         held_h = (time.time() - pos["ts"]) / 3600
         if pos["entry_liq"] and pos["last_liq"] and pos["last_liq"] < 0.3 * pos["entry_liq"]:
             return self._exit(pos["id"], "liquidez", f"a liquidez caiu para {pos['last_liq'] / pos['entry_liq']:.0%} da entrada")
-        if pnl <= -config.DEX_STOP_PCT:
-            return self._exit(pos["id"], "stop-loss", f"{pnl:+.0f}%")
+        stop = pos.get("stop_pct") or config.DEX_STOP_PCT
+        if pnl <= -stop:
+            return self._exit(pos["id"], "stop-loss", f"{pnl:+.1f}% (stop -{stop:.1f}%)")
         target = pos.get("target_pct") or config.DEX_TP_DEFAULT_PCT
         if pnl >= target:
             return self._exit(pos["id"], "take-profit", f"{pnl:+.0f}% (alvo +{target:.0f}%)")
@@ -475,7 +507,11 @@ class DexBot:
             return self._exit(pos["id"], "tempo", f"{held_h:.1f}h em carteira, {pnl:+.0f}%")
 
     def _exit(self, pos_id, kind, detail):
-        proceeds = None
+        with self._exit_lock:
+            return self._exit_locked(pos_id, kind, detail)
+
+    def _exit_locked(self, pos_id, kind, detail):
+        proceeds = sig = None
         if self.live:
             pos = self.sim.s["positions"].get(pos_id)
             if not pos:
@@ -486,16 +522,26 @@ class DexBot:
                     sim_txt = "OK" if res["sim_ok"] else "FALHOU: " + str(res["sim_err"])
                     self._say(f"[DRY-RUN] venda de {pos['name']} ({kind}): receberia ~{res['usd']:.2f} USD, simulacao {sim_txt}. Nada enviado.", "sell")
                     return
-                proceeds = res["usd"]
+                proceeds, sig = res["usd"], res.get("sig")
             except Exception as exc:
                 if kind == "rug" and pos["miss"] >= 6:
                     proceeds = 0.0   # a pool sumiu e a venda nao passa: dar como perdido
                 else:
                     self._say(f"{pos['name']}: venda ({kind}) falhou, tento outra vez no proximo ciclo. {exc}", "error")
                     return
-        rec = self.sim.sell(pos_id, kind, proceeds)
+        rec = self.sim.sell(pos_id, kind, proceeds, detail=detail, sig=sig)
         if rec:
             self._say(f"VENDA {rec['name']} ({kind}: {detail}): {rec['pnl_usd']:+.2f} USD ({rec['pnl_pct']:+.0f}%)", "sell" if rec["pnl_usd"] > 0 else "alert")
+
+    def sell_one(self, pos_id):
+        """Venda manual de uma so posicao. Devolve (vendida, mensagem)."""
+        pos = self.sim.s["positions"].get(pos_id)
+        if not pos:
+            return False, "Posicao ja nao existe."
+        self._exit(pos_id, "manual", "venda manual")
+        if pos_id in self.sim.s["positions"]:
+            return False, "Nao vendeu (dry-run ou erro). Ver o registo."
+        return True, f"{pos['name']} vendida."
 
     # ---------- vista para a interface ----------
     def status(self):
@@ -505,20 +551,24 @@ class DexBot:
             nv = net_value(p["tokens"], p["last_price"], p["last_liq"])
             positions.append({"id": p["id"], "name": p["name"], "network": p["network"], "pool": p["pool"], "token": p["token"],
                               "entry_price": p["entry_price"], "price": p["last_price"], "sig": p.get("sig"), "reason": p.get("reason"),
-                              "stop_price": self.sim.price_for_pnl(p, -config.DEX_STOP_PCT),
+                              "stop_price": self.sim.price_for_pnl(p, -(p.get("stop_pct") or config.DEX_STOP_PCT)),
+                              "stop_pct": p.get("stop_pct") or config.DEX_STOP_PCT, "conviction": p.get("conviction"),
                               "target_price": self.sim.price_for_pnl(p, p.get("target_pct") or config.DEX_TP_DEFAULT_PCT),
                               "cost": round(p["cost"], 2), "value": round(nv, 2),
                               "pnl_pct": round(self.sim.pnl_pct(p), 1), "peak_pct": round(p["peak_pnl_pct"], 1),
                               "held_min": round((time.time() - p["ts"]) / 60), "liq": p["last_liq"], "confidence": p["confidence"],
-                              "target_pct": p.get("target_pct")})
+                              "target_pct": p.get("target_pct"),
+                              "tokens": p["tokens"], "entry_ts": p["ts"], "entry_liq": p.get("entry_liq"), "real": bool(p.get("real")),
+                              "buy_cost_usd": round(p["cost"] - p["tokens"] * p["entry_price"], 4),      # comissao + impacto pagos a comprar
+                              "gross": round(p["tokens"] * p["last_price"], 4), "exit_cost": round(p["tokens"] * p["last_price"] - nv, 4)})  # o que custaria sair agora
         eq = self.sim.equity()
-        return {"enabled": self.enabled, "cash": round(s["cash"], 2), "equity": round(eq, 2), "start": s["start"],
+        return {"enabled": self.enabled, "activity": self.activity, "cash": round(s["cash"], 2), "equity": round(eq, 2), "start": s["start"],
                 "pnl_usd": round(eq - s["start"], 2), "positions": positions, "max_positions": config.DEX_MAX_POSITIONS,
-                "closed": list(reversed(s["closed"][-30:])), "stats": self.sim.stats(), "funnel": self.funnel, "last_scan": self.last_scan,
+                "closed": [{k: v for k, v in r.items() if k != "features"} for r in reversed(s["closed"][-200:])], "stats": self.sim.stats(), "funnel": self.funnel, "last_scan": self.last_scan,
                 "equity_curve": s["equity"][-300:], "log": list(self.log)[:120],
-                "analysed": list(self.analysed)[:150], "scans": list(self.scans)[:40], "wallet": self._wallet_info(),
+                "analysed": [{k: v for k, v in a.items() if k != "velas"} for a in list(self.analysed)[:150]], "scans": list(self.scans)[:40], "wallet": self._wallet_info(),
                 "today": self._today(), "scan_sec": config.DEX_SCAN_SEC,
                 "mode": "live" if self.live else "paper", "dry_run": bool(self.live and self.live.dry),
                 "rules": {"size_min": config.DEX_MIN_SIZE_EUR, "size_max": config.DEX_MAX_SIZE_EUR, "eurusd": round(fx.eur_usd(), 4),
-                          "tp_min": config.DEX_TP_MIN_PCT, "tp_max": config.DEX_TP_MAX_PCT, "stop": config.DEX_STOP_PCT, "fee": config.DEX_FEE_PCT,
+                          "tp_min": config.DEX_TP_MIN_PCT, "tp_max": config.DEX_TP_MAX_PCT, "stop": config.DEX_STOP_PCT, "stop_min": config.DEX_STOP_MIN_PCT, "stop_max": config.DEX_STOP_MAX_PCT, "fee": config.DEX_FEE_PCT,
                           "min_liq": config.DEX_MIN_LIQ_USD, "max_hold_h": config.DEX_MAX_HOLD_H, "networks": self.networks}}

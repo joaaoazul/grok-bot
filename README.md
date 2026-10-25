@@ -53,6 +53,20 @@ Se o browser der **403** ou "sem autorização" em `localhost:5000`, a porta 500
 
 O botão "Pânico" da página `/dex` vende tudo e para. Um ficheiro `data/KILL` bloqueia novas compras.
 
+## Interface
+
+- **Vender cada posição**: botões por posição (Binance: 25%, 50%, tudo; DEX: posição inteira), sempre com confirmação. Com `DEX_MODE=live` e `DEX_LIVE_ARMED=true` vende de verdade.
+- **Filtros e ordenação** nas tabelas (guardados no browser): moeda, resultado, rede, tipo de saída, período e pesquisa. Clica num cabeçalho para ordenar.
+- **Gráficos**: na Binance as velas atualizam a cada negócio; na DEX escolhes o intervalo (1m, 5m, 15m, 1h, 4h, 1d). As velas de 4h e 1d podem demorar quando a GeckoTerminal limita os pedidos.
+- **Detalhe de cada operação**: clica numa posição ou numa linha de "Operações" para ver a quantidade, as comissões e o impacto, o resultado bruto e líquido, o motivo da saída e as transações.
+- **Bit, a mascote**: mostra o que o bot está a fazer (dorme com o bot parado, passeia e procura, pensa enquanto espera pelo Grok, reage a compras e vendas). Clica nela para ver um resumo, arrasta-a para mudar de sítio, `⇄` pára o passeio e `×` oculta-a. As imagens estão em `static/mascot/` e podem ser trocadas por outras com o mesmo nome.
+
+## Entrada por volume e stop por posição (DEX)
+
+O Grok recebe os sinais das janelas de 5 min e de 1 h do DexScreener: volume contra o ritmo da hora, pressão de compra, preço esticado e distribuição (volume alto com vendas a dominar). Entra com mais vontade quando há volume de compra muito grande, e não persegue preços já esticados.
+
+Cada compra tem o seu stop: o Grok propõe e o código limita-o pela convicção (confiança, tamanho da ordem e força do volume). Convicção baixa fica entre 5% e 10%, e só a máxima chega a 15%. Os limites estão no `.env.example` (`DEX_STOP_*`). **Muda o comportamento de compra e de saída**, por isso convém testar em `paper` ou em dry-run antes de usar dinheiro real.
+
 ## Segurança
 
 - O `.env` e a pasta `data/` não vão para o git. Não os partilhes.
@@ -64,6 +78,6 @@ O botão "Pânico" da página `/dex` vende tudo e para. Um ficheiro `data/KILL` 
 ```
 app.py            servidor Flask e rotas da API
 bot/              lógica do bot da Binance (broker, risco, scanner, journal)
-bot/dex/          bot de DEX (dados, simulação, estratégia, execução real)
-templates/ static/  interface web
+bot/dex/          bot de DEX (dados, simulação, estratégia, sinais de volume, execução real)
+templates/ static/  interface web (theme.css, mascot.js, static/mascot/)
 ```

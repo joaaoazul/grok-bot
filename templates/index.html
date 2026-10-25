@@ -4,16 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grok Trader</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='mascot.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
   <header>
-    <h1>Grok Trader</h1>
+    <h1>Grok Trader <span class="slash">/ BINANCE</span></h1>
     <span class="tag" id="mode">...</span>
     <span class="tag ws-off" id="liveTag" title="Precos em tempo real, direto da Binance">○ a ligar</span>
     <span class="muted">{{ model }} · max {{ max_order }} USDT por ordem</span>
-    <a class="navlink" href="/dex">Memecoins (simulacao) →</a>
+    <span class="status"><i class="dot" id="autoDot"></i><span id="autoDotText">auto parado</span></span>
+    <div class="hud" id="hud" data-bot="auto"><span>UPTIME<b id="hUp">--:--:--</b></span><span>CICLO<b id="hCy">#-</b></span><span>PID<b id="hPid">-</b></span></div>
+    <a class="navlink" href="/dex">DEX</a>
   </header>
 
   <div class="tiles">
@@ -28,12 +35,18 @@
   <div class="grid">
     <section class="card wide">
       <h2>Evolucao do valor da carteira (USDT)</h2>
-      <div class="chart"><canvas id="equityChart" role="img" aria-label="Valor da carteira ao longo do tempo"></canvas></div>
+      <div class="chart" id="equityChart" role="img" aria-label="Valor da carteira ao longo do tempo"></div>
       <p class="muted empty" id="equityEmpty" hidden>A recolher dados. O grafico aparece depois de dois registos (um por minuto).</p>
     </section>
 
     <section class="card wide">
-      <h2>Ativos em carteira</h2>
+      <div class="row">
+        <h2>Ativos em carteira</h2>
+        <input id="posQ" type="search" placeholder="Filtrar moeda..." aria-label="Filtrar moeda">
+        <select id="posRes" aria-label="Filtrar por resultado">
+          <option value="">Todas</option><option value="win">Em lucro</option><option value="loss">Em perda</option>
+        </select>
+      </div>
       <div class="scroll"><table id="positions"></table></div>
     </section>
 
@@ -47,12 +60,12 @@
         </select>
       </div>
       <div class="legend">
-        <span><i class="sw line"></i> Preco</span>
         <span><i class="sw dash"></i> Entrada media</span>
-        <span><b class="tri up">▲</b> Compra</span>
-        <span><b class="tri down">▼</b> Venda</span>
+        <span><i class="sw stop"></i> Stop-loss</span>
+        <span><b class="tri up">▲</b> Compra (C)</span>
+        <span><b class="tri down">▼</b> Venda (V)</span>
       </div>
-      <div class="chart"><canvas id="priceChart" role="img" aria-label="Preco da moeda com as compras e vendas do bot"></canvas></div>
+      <div class="chart tall" id="priceChart" role="img" aria-label="Velas da moeda com as compras e vendas do bot"></div>
     </section>
 
     <section class="card wide">
@@ -83,11 +96,23 @@
 
     <section class="card wide">
       <h2>Historico de ordens</h2>
+      <div class="filters">
+        <select id="fSide" aria-label="Lado"><option value="">Compras e vendas</option><option value="buy">So compras</option><option value="sell">So vendas</option></select>
+        <select id="fRes" aria-label="Resultado"><option value="">Qualquer resultado</option><option value="win">Vendas ganhas</option><option value="loss">Vendas perdidas</option></select>
+        <select id="fSymbol" aria-label="Moeda"><option value="">Todas as moedas</option></select>
+        <select id="fPeriod" aria-label="Periodo"><option value="all">Sempre</option><option value="today">Hoje</option><option value="7d">7 dias</option><option value="30d">30 dias</option></select>
+        <input id="fQ" type="search" placeholder="Pesquisar motivo..." aria-label="Pesquisar">
+        <button id="fReset" type="button" class="ghost">Limpar</button>
+      </div>
+      <p class="muted" id="fSummary"></p>
       <div class="scroll"><table id="trades"></table></div>
     </section>
   </div>
 
   <p class="muted disclaimer">Nao e aconselhamento financeiro. As sugestoes do Grok podem estar erradas e podes perder dinheiro.</p>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="{{ url_for('static', filename='hud.js') }}"></script>
+  <script src="{{ url_for('static', filename='mascot.js') }}"></script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

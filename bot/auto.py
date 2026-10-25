@@ -14,6 +14,8 @@ class AutoTrader:
         self.enabled = False
         self.halted_day = None
         self.last_tick = None
+        self.cycles = 0
+        self.activity = {"kind": "idle", "what": ""}   # idle | scan | think
         self.universe = []
         self._lock = threading.RLock()
         self._stop = threading.Event()
@@ -41,15 +43,18 @@ class AutoTrader:
 
     def status(self):
         return {"enabled": self.enabled, "interval": config.AUTO_INTERVAL_SEC, "halted": self.halted_day == str(datetime.now().date()),
-                "last_tick": self.last_tick, "universe": self.universe, "log": list(self.log)}
+                "last_tick": self.last_tick, "cycles": self.cycles, "activity": self.activity, "universe": self.universe, "log": list(self.log)}
 
     def _run(self):
         while not self._stop.is_set():
+            self.activity = {"kind": "scan", "what": "a vigiar o mercado"}
             try:
                 self._tick()
             except Exception as exc:
                 self._say(f"Erro no ciclo: {exc}", "error")
+            self.activity = {"kind": "idle", "what": ""}
             self.last_tick = datetime.now().strftime("%H:%M:%S")
+            self.cycles += 1
             self._stop.wait(config.AUTO_INTERVAL_SEC)
 
     def _tick(self):
@@ -160,8 +165,12 @@ class AutoTrader:
         else:
             position = f"Sem posicao em {base}."
         snap = market.snapshot(symbol, config.AUTO_TIMEFRAME)
-        proposal = analyst.analyse(snap, self.broker.portfolio(), f"Modo automatico agressivo. {position} Decide agora.",
-                                   memory=journal.memory())
+        self.activity = {"kind": "think", "what": f"a analisar {symbol} com o Grok"}
+        try:
+            proposal = analyst.analyse(snap, self.broker.portfolio(), f"Modo automatico agressivo. {position} Decide agora.",
+                                       memory=journal.memory())
+        finally:
+            self.activity = {"kind": "scan", "what": "a vigiar o mercado"}
         action = proposal.get("action")
         conf = float(proposal.get("confidence") or 0)
         proposal["symbol"] = symbol  # so decide sobre o par que foi analisado

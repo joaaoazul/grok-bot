@@ -52,7 +52,7 @@ class PaperBroker:
                 self.s["positions"][base] = pos - qty
             self.s["trades"].append({"day": str(date.today()), "side": side, "symbol": symbol, "price": px, "qty": qty, "usdt": qty * px})
             self._save()
-        return {"side": side, "symbol": symbol, "price": px, "qty": qty, "usdt": round(qty * px, 2), "mode": "paper"}
+        return {"side": side, "symbol": symbol, "price": px, "qty": qty, "usdt": round(qty * px, 2), "mode": "paper", "fee_usdt": 0.0}   # simulacao sem comissoes
 
 
 class LiveBroker:
@@ -87,7 +87,13 @@ class LiveBroker:
         px = market.price(symbol)
         amount = float(self.ex.amount_to_precision(symbol, usdt / px))
         res = self.ex.create_order(symbol, "market", side, amount)
-        return {"side": side, "symbol": symbol, "price": res.get("average") or px, "qty": amount, "usdt": round(amount * px, 2), "mode": "live-testnet" if config.TESTNET else "live", "id": res.get("id")}
+        fill = res.get("average") or px
+        base = symbol.split("/")[0]
+        fee = 0.0
+        for f in (res.get("fees") or ([res["fee"]] if res.get("fee") else [])):   # comissao na moeda em que foi cobrada, convertida para USDT
+            cost = f.get("cost") or 0.0
+            fee += cost * (fill if f.get("currency") == base else 1.0 if f.get("currency") == "USDT" else 0.0)
+        return {"side": side, "symbol": symbol, "price": fill, "qty": amount, "usdt": round(amount * px, 2), "mode": "live-testnet" if config.TESTNET else "live", "id": res.get("id"), "fee_usdt": round(fee, 6)}
 
 
 def get_broker():

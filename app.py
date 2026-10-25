@@ -8,6 +8,7 @@ from bot.broker import get_broker
 from bot.dex.strategy import DexBot
 
 app = Flask(__name__)
+_STARTED = time.time()
 broker = get_broker()
 auto = AutoTrader(broker)
 dex = DexBot()  # memecoins em DEX: so simulacao
@@ -29,6 +30,12 @@ def index():
                            take_profit=config.TAKE_PROFIT_PCT, max_loss=config.MAX_DAILY_LOSS_USDT)
 
 
+@app.get("/api/sys")
+def sys_info():
+    """Para a barra de estado das paginas: ha quanto tempo corre, processo e ciclos de cada bot."""
+    return jsonify(uptime=int(time.time() - _STARTED), pid=os.getpid(), dex_cycles=dex.cycles, auto_cycles=auto.cycles)
+
+
 @app.get("/api/symbols")
 def symbols():
     return jsonify(scanner.universe(_held()) + [s for s in config.SYMBOLS if s not in scanner.universe(_held())])
@@ -47,7 +54,7 @@ def summary():
     for base, qty in p["positions"].items():
         symbol = f"{base}/USDT"
         last = (tickers.get(symbol) or {}).get("last")
-        if qty <= 0 or symbol not in tracked or not last:
+        if qty <= 0 or symbol not in tracked or not last or qty * last < 0.01:   # ignora po de arredondamento
             continue
         cost = st["cost"].get(symbol) or {}
         avg = cost.get("avg") if cost.get("qty", 0) > 0 else None
@@ -76,7 +83,7 @@ def equity_series():
 
 @app.get("/api/trades")
 def trades():
-    return jsonify(list(reversed(ledger.state().get("trades", [])[-100:])))
+    return jsonify(list(reversed(ledger.state().get("trades", [])[-500:])))
 
 
 @app.get("/api/candles/<base>/<quote>")
@@ -88,7 +95,11 @@ def candles(base, quote):
     if tf not in ("5m", "15m", "1h", "4h"):
         return jsonify(error="Intervalo invalido."), 400
     own = [t for t in ledger.state().get("trades", []) if t["symbol"] == symbol]
-    return jsonify(candles=market.candles(symbol, tf), trades=own)
+    try:
+        rows = market.ohlcv(symbol, tf)
+    except Exception as exc:
+        return jsonify(error=str(exc)), 502
+    return jsonify(candles=rows, trades=own)
 
 
 @app.get("/api/market/<base>/<quote>")
@@ -126,6 +137,32 @@ def execute():
         return jsonify(error=str(exc)), 500
 
 
+@app.post("/api/sell")
+def sell_position():
+    """Vende uma posicao (ou parte dela) ao preco de mercado. E uma saida: ignora o limite por ordem, como o stop-loss."""
+    body = request.get_json(silent=True) or {}
+    symbol = body.get("symbol")
+    try:
+        pct = float(body.get("pct", 100))
+    except (TypeError, ValueError):
+        return jsonify(error="Percentagem invalida."), 400
+    if not 0 < pct <= 100:
+        return jsonify(error="A percentagem tem de estar entre 0 e 100."), 400
+    if not isinstance(symbol, str) or symbol not in _held():
+        return jsonify(error="Sem posicao nesta moeda."), 400
+    try:
+        if pct >= 100:
+            res = trader.close_position(broker, symbol, "venda manual (botao)")
+        else:
+            qty = broker.portfolio()["positions"].get(symbol.split("/")[0], 0.0)
+            res = trader.execute(broker, "sell", symbol, qty * pct / 100 * market.price(symbol), f"venda manual {pct:g}% (botao)")
+    except Exception as exc:
+        return jsonify(error=str(exc)), 500
+    if res is None:
+        return jsonify(error="Sem posicao nesta moeda."), 400
+    return jsonify(res)
+
+
 @app.get("/api/auto")
 def auto_status():
     return jsonify(auto.status())
@@ -158,17 +195,33 @@ def dex_candles():
     net, pool = request.args.get("network", ""), request.args.get("pool", "")
     if not net.isalnum() or not pool.isalnum():
         return jsonify({"error": "parametros invalidos"}), 400
-    hit = _dex_candle_cache.get((net, pool))
-    if hit and time.time() - hit[0] < 12:
-        return jsonify(hit[1])
     from bot.dex import data as dex_data
+    tf = request.args.get("tf", "1m")
+    if tf not in dex_data.TIMEFRAMES:
+        return jsonify({"error": "intervalo invalido"}), 400
+    key = (net, pool, tf)
+    ttl = {"1m": 4, "5m": 10, "15m": 20, "1h": 40, "4h": 90, "1d": 180}[tf]   # a GeckoTerminal limita pedidos: intervalos longos mudam devagar
+    hit = _dex_candle_cache.get(key)
+    if hit and time.time() - hit[0] < ttl:
+        return jsonify(hit[1])
     try:
-        rows = dex_data.candles(net, pool, limit=120)
+        rows = dex_data.candles(net, pool, limit=120, tf=tf)
     except Exception as exc:
         return jsonify({"error": str(exc)}), 502
     out = [{"time": int(r[0]), "open": r[1], "high": r[2], "low": r[3], "close": r[4], "volume": r[5]} for r in rows]
-    _dex_candle_cache[(net, pool)] = (time.time(), out)
+    _dex_candle_cache[key] = (time.time(), out)
     return jsonify(out)
+
+
+@app.post("/api/dex/sell")
+def dex_sell():
+    pid = (request.get_json(silent=True) or {}).get("id")
+    if not isinstance(pid, str):
+        return jsonify(error="id em falta"), 400
+    ok, msg = dex.sell_one(pid)
+    if not ok:
+        return jsonify(error=msg), 409
+    return jsonify(message=msg, **dex.status())
 
 
 @app.post("/api/dex/panic")

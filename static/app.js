@@ -13,11 +13,17 @@ async function api(url, body) {
   return data;
 }
 
+const store = {
+  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* sem armazenamento */ } },
+};
+const TF_SEC = { "5m": 300, "15m": 900, "1h": 3600, "4h": 14400 };
+
 /* ---------- Tempo real: o browser liga-se direto aos WebSockets publicos da Binance ---------- */
 const live = {};          // "BTC/USDT" -> { price, open24 }
 const WS_HOSTS = ["wss://stream.binance.com:9443", "wss://stream.binance.com:443", "wss://data-stream.binance.vision:443"];
 let hostIdx = 0, ws = null, wsKey = "", wsNames = {};
-let renderTimer = null, chartDirty = false;
+let renderTimer = null;
 
 const streamName = (s) => s.replace("/", "").toLowerCase();
 
@@ -62,32 +68,66 @@ function onTick(d) {
     cur.price = +d.c;
   } else if (d.e === "aggTrade") {
     cur.price = +d.p;
-    applyPrice(sym, +d.p);
-  } else if (d.e === "kline" && d.k.i === $("tf").value) {
-    applyKline(d.k);
+    if (sym === $("symbol").value) bumpBar(+d.p);
+  } else if (d.e === "kline" && d.k.i === $("tf").value && sym === $("symbol").value) {
+    pushKline(d.k);
   }
   scheduleRender();
 }
 
-// A vela em curso acompanha cada negocio; velas novas entram quando a kline muda de abertura
-let candleTs = [];
-function applyPrice(sym, px) {
-  if (!priceChart || sym !== $("symbol").value || !candleTs.length) return;
-  priceChart.data.datasets[0].data[candleTs.length - 1] = px;
-  chartDirty = true;
+/* ---------- Graficos (lightweight-charts: so a ultima vela e atualizada, nunca o grafico inteiro) ---------- */
+let priceChart, candleSeries, volumeSeries, equityChart, equitySeries;
+let lastBar = null, barDirty = false, avgLine = null, stopLine = null, priceKey = "";
+
+const localTick = (t) => {
+  const d = new Date(t * 1000);
+  return d.getHours() === 0 && d.getMinutes() === 0
+    ? d.toLocaleDateString("pt-PT", { day: "2-digit", month: "2-digit" })
+    : d.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
+};
+
+function chartOptions() {
+  return {
+    autoSize: true,
+    layout: { background: { color: "transparent" }, textColor: css("--muted"), fontFamily: "JetBrains Mono, ui-monospace, Consolas, monospace" },
+    grid: { vertLines: { color: "rgba(139,148,163,.08)" }, horzLines: { color: "rgba(139,148,163,.08)" } },
+    rightPriceScale: { borderColor: css("--line") },
+    timeScale: { borderColor: css("--line"), timeVisible: true, secondsVisible: false, tickMarkFormatter: localTick },
+    localization: { timeFormatter: (t) => new Date(t * 1000).toLocaleString("pt-PT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) },
+    crosshair: { mode: 0 },
+  };
 }
 
-function applyKline(k) {
-  if (!priceChart || !candleTs.length) return;
-  const last = candleTs[candleTs.length - 1];
-  if (k.t > last) {
-    candleTs.push(k.t);
-    priceChart.data.labels.push(fmtTime(k.t / 1000, $("tf").value === "4h" || $("tf").value === "1h"));
-    priceChart.data.datasets.forEach((ds, i) => ds.data.push(i === 0 ? +k.c : i === 2 ? ds.data[ds.data.length - 1] : null));
-  } else if (k.t === last) {
-    priceChart.data.datasets[0].data[candleTs.length - 1] = +k.c;
-  }
-  chartDirty = true;
+function initCharts() {
+  priceChart = LightweightCharts.createChart($("priceChart"), chartOptions());
+  candleSeries = priceChart.addCandlestickSeries({ upColor: css("--good"), downColor: css("--bad"), borderVisible: false, wickUpColor: css("--good"), wickDownColor: css("--bad") });
+  volumeSeries = priceChart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false });
+  priceChart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+  equityChart = LightweightCharts.createChart($("equityChart"), chartOptions());
+  equitySeries = equityChart.addAreaSeries({ lineColor: css("--series"), topColor: "rgba(230,235,240,.16)", bottomColor: "rgba(230,235,240,0)", lineWidth: 2, priceLineVisible: false });
+}
+
+// Cada negocio mexe so no fecho/maximo/minimo da vela em curso. O desenho vai no proximo frame (ate ~60/s),
+// sem esperar pelo resto da pagina, e varios negocios no mesmo frame fundem-se num so desenho.
+function bumpBar(px) {
+  if (!lastBar) return;
+  lastBar.close = px;
+  lastBar.high = Math.max(lastBar.high, px);
+  lastBar.low = Math.min(lastBar.low, px);
+  if (!barDirty) { barDirty = true; requestAnimationFrame(paintBar); }
+}
+
+function paintBar() {
+  if (barDirty && lastBar) { barDirty = false; candleSeries.update(lastBar); }
+}
+
+function pushKline(k) {
+  const t = Math.floor(k.t / 1000);
+  if (lastBar && t < lastBar.time) return;
+  lastBar = { time: t, open: +k.o, high: +k.h, low: +k.l, close: +k.c };
+  candleSeries.update(lastBar);
+  volumeSeries.update({ time: t, value: +k.v, color: +k.c >= +k.o ? "rgba(61,220,151,.35)" : "rgba(255,77,106,.35)" });
+  barDirty = false;
 }
 
 // No maximo 4 repintagens por segundo, para o ecra nao ficar a tremer
@@ -109,116 +149,99 @@ function renderLive() {
       $("m24").innerHTML = `${arrow(chg)}${signed(chg)}%`;
     }
   }
-  if (chartDirty && priceChart) { chartDirty = false; priceChart.update("none"); }
+  if (barDirty && lastBar) { barDirty = false; candleSeries.update(lastBar); }
 }
-
-/* ---------- Graficos ---------- */
-let equityChart, priceChart;
-
-function baseOptions(valueLabel) {
-  const text = css("--muted"), grid = "rgba(139,148,163,.15)";
-  return {
-    responsive: true, maintainAspectRatio: false, animation: false,
-    interaction: { mode: "index", intersect: false },
-    plugins: {
-      legend: { display: false },
-      tooltip: { callbacks: { label: (c) => (c.parsed.y == null ? null : `${c.dataset.label}: ${valueLabel(c.parsed.y)}`) } },
-    },
-    scales: {
-      x: { ticks: { color: text, maxTicksLimit: 7, maxRotation: 0 }, grid: { display: false } },
-      y: { ticks: { color: text, callback: (v) => price(v) }, grid: { color: grid } },
-    },
-  };
-}
-
-const fmtTime = (ts, withDay) => {
-  const d = new Date(ts * 1000);
-  const hm = d.toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit" });
-  return withDay ? `${d.toLocaleDateString("pt-PT", { day: "2-digit", month: "2-digit" })} ${hm}` : hm;
-};
 
 async function loadEquity() {
   const pts = await api("/api/equity");
   $("equityEmpty").hidden = pts.length >= 2;
   $("equityChart").hidden = pts.length < 2;
   if (pts.length < 2) return;
-  const multiDay = pts[pts.length - 1][0] - pts[0][0] > 86400;
-  const labels = pts.map((p) => fmtTime(p[0], multiDay));
-  const data = pts.map((p) => p[1]);
-  if (!equityChart) {
-    equityChart = new Chart($("equityChart"), {
-      type: "line",
-      data: { labels, datasets: [{ label: "Carteira", data, borderColor: css("--series"), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.2 }] },
-      options: baseOptions((v) => `${num(v)} USDT`),
-    });
-  } else {
-    equityChart.data.labels = labels;
-    equityChart.data.datasets[0].data = data;
-    equityChart.update();
-  }
+  const seen = new Set();
+  equitySeries.setData(pts.filter((p) => !seen.has(p[0]) && seen.add(p[0])).sort((a, b) => a[0] - b[0]).map((p) => ({ time: p[0], value: p[1] })));
+  equityChart.timeScale().fitContent();
+}
+
+function drawLines() {
+  if (avgLine) { candleSeries.removePriceLine(avgLine); avgLine = null; }
+  if (stopLine) { candleSeries.removePriceLine(stopLine); stopLine = null; }
+  const pos = (window.lastSummary?.positions || []).find((p) => p.symbol === $("symbol").value);
+  if (pos?.avg) avgLine = candleSeries.createPriceLine({ price: pos.avg, color: css("--muted"), lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "entrada" });
+  if (pos?.stop) stopLine = candleSeries.createPriceLine({ price: pos.stop, color: css("--bad"), lineWidth: 1, lineStyle: 1, axisLabelVisible: true, title: "stop" });
 }
 
 async function loadPrice() {
-  const symbol = $("symbol").value;
+  const symbol = $("symbol").value, tf = $("tf").value;
   if (!symbol) return;
   const [base, quote] = symbol.split("/");
   let r;
   try {
-    r = await api(`/api/candles/${base}/${quote}?tf=${$("tf").value}`);
+    r = await api(`/api/candles/${base}/${quote}?tf=${tf}`);
   } catch (e) {
+    $("priceChart").classList.remove("loading");
     return;
   }
-  candleTs = r.candles.map((c) => c[0]);
-  const labels = r.candles.map((c) => fmtTime(c[0] / 1000, $("tf").value === "4h" || $("tf").value === "1h"));
-  const closes = r.candles.map((c) => c[1]);
+  if (symbol !== $("symbol").value || tf !== $("tf").value) return;   // mudou enquanto carregava
+  $("priceChart").classList.remove("loading");
+  const rows = r.candles.map((c) => ({ time: c[0] / 1000, open: c[1], high: c[2], low: c[3], close: c[4] }));
+  if (!rows.length) return;
+  const p = rows[rows.length - 1].close;
+  const prec = p >= 100 ? 2 : p >= 1 ? 4 : 8;
+  candleSeries.applyOptions({ priceFormat: { type: "price", precision: prec, minMove: Math.pow(10, -prec) } });
+  candleSeries.setData(rows);
+  volumeSeries.setData(r.candles.map((c) => ({ time: c[0] / 1000, value: c[5], color: c[4] >= c[1] ? "rgba(61,220,151,.35)" : "rgba(255,77,106,.35)" })));
+  lastBar = { ...rows[rows.length - 1] };
+  barDirty = false;
 
-  // Cada ordem vai para a vela mais proxima (ordens anteriores ao grafico ficam de fora)
-  const marks = closes.map(() => null), styles = [], rotation = [], colors = [];
-  r.trades.forEach((t) => {
-    const ms = t.ts * 1000;
-    if (ms < candleTs[0] - 1) return;
-    const i = candleTs.reduce((best, x, k) => (Math.abs(x - ms) < Math.abs(candleTs[best] - ms) ? k : best), 0);
-    marks[i] = t.price;
-    styles[i] = "triangle";
-    rotation[i] = t.side === "buy" ? 0 : 180;
-    colors[i] = t.side === "buy" ? css("--good") : css("--bad");
-  });
-
-  const pos = (window.lastSummary?.positions || []).find((p) => p.symbol === symbol);
-  const datasets = [
-    { label: "Preco", data: closes, borderColor: css("--series"), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, tension: 0.15, order: 2 },
-    { label: "Ordens", data: marks, showLine: false, pointStyle: styles, rotation, pointRadius: 8, pointHoverRadius: 10,
-      backgroundColor: colors, borderColor: css("--card"), borderWidth: 2, order: 1 },
-    { label: "Entrada media", data: closes.map(() => pos?.avg ?? null), borderColor: css("--muted"), borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0, order: 3 },
-  ];
-
-  if (!priceChart) {
-    priceChart = new Chart($("priceChart"), { type: "line", data: { labels, datasets }, options: baseOptions(price) });
-  } else {
-    priceChart.data.labels = labels;
-    priceChart.data.datasets = datasets;
-    priceChart.update("none");
-  }
+  // Cada ordem fica na vela onde aconteceu (ordens anteriores ao grafico ficam de fora)
+  const step = TF_SEC[tf], first = rows[0].time;
+  const marks = r.trades.filter((t) => t.ts >= first).map((t) => ({
+    time: Math.floor(t.ts / step) * step, position: t.side === "buy" ? "belowBar" : "aboveBar", shape: t.side === "buy" ? "arrowUp" : "arrowDown",
+    color: t.side === "buy" ? css("--good") : css("--bad"), text: `${t.side === "buy" ? "C" : "V"} ${price(t.price)}`,
+  })).sort((a, b) => a.time - b.time);
+  candleSeries.setMarkers(marks);
+  drawLines();
+  const key = `${symbol}:${tf}`;
+  if (key !== priceKey) { priceKey = key; priceChart.timeScale().fitContent(); }
 }
 
 /* ---------- Carteira (valores do servidor, recalculados com o preco ao vivo) ---------- */
+let posOrder = [], posSortKey = store.get("posSort") || "value", posSortDir = Number(store.get("posDir")) || -1, posTableSig = "";
+const posFilter = { q: store.get("posQ") || "", res: store.get("posRes") || "" };
+
 async function loadSummary() {
   window.lastSummary = await api("/api/summary");
-  renderSummary();
+  renderSummary(true);
+  drawLines();
   wsConnect(); // as posicoes podem ter mudado: subscreve as moedas novas
 }
 
-function renderSummary() {
+const POS_COLS = [["symbol", "Moeda", ""], ["qty", "Quantidade", "n"], ["avg", "Entrada", "n"], ["price", "Atual", "n"], ["value", "Valor (USDT)", "n"],
+                  ["pnl_pct", "Resultado", "n"], ["stop", "Stop-loss", "n"]];
+
+function liveRows() {
+  return window.lastSummary.positions.map((p) => {
+    const px = live[p.symbol]?.price ?? p.price;
+    return { ...p, price: px, value: p.qty * px, pnl: p.avg ? (px - p.avg) * p.qty : null, pnl_pct: p.avg ? (px / p.avg - 1) * 100 : null };
+  });
+}
+
+function sortRows(rows) {
+  const k = posSortKey, d = posSortDir;
+  return rows.slice().sort((a, b) => (k === "symbol" ? a.symbol.localeCompare(b.symbol) * d : ((a[k] ?? -Infinity) - (b[k] ?? -Infinity)) * d));
+}
+
+const posVisible = (p) => (!posFilter.q || p.symbol.toLowerCase().includes(posFilter.q.toLowerCase()))
+  && (!posFilter.res || (posFilter.res === "win" ? (p.pnl ?? 0) > 0 : (p.pnl ?? 0) < 0));
+
+function renderSummary(resort) {
   const s = window.lastSummary;
   if (!s) return;
   const tag = $("mode");
   tag.textContent = s.mode.toUpperCase();
   tag.className = "tag " + (s.mode === "paper" ? "paper" : "live");
 
-  const rows = s.positions.map((p) => {
-    const px = live[p.symbol]?.price ?? p.price;
-    return { ...p, price: px, value: p.qty * px, pnl: p.avg ? (px - p.avg) * p.qty : null, pnl_pct: p.avg ? (px / p.avg - 1) * 100 : null };
-  });
+  const rows = liveRows();
   const exposure = rows.reduce((a, p) => a + p.value, 0);
   const equity = s.usdt + exposure;
   const dayPnl = equity - s.day_start;
@@ -238,17 +261,73 @@ function renderSummary() {
   $("tLossBar").className = pct >= 80 ? "hot" : "";
   $("tLossSub").textContent = pct >= 80 ? "⚠ perto do limite: o bot vende tudo e pausa" : `${num(pct, 0)}% do limite`;
 
-  $("positions").innerHTML = rows.length
-    ? `<tr><th>Moeda</th><th class="n">Quantidade</th><th class="n">Entrada</th><th class="n">Atual</th><th class="n">Valor (USDT)</th><th class="n">Resultado</th><th class="n">Stop-loss</th></tr>` +
-      rows.map((p) => `<tr class="click" data-symbol="${esc(p.symbol)}">
-        <td><b>${esc(p.symbol)}</b></td><td class="n">${num(p.qty, 6)}</td><td class="n">${p.avg ? price(p.avg) : "-"}</td>
-        <td class="n">${price(p.price)}</td><td class="n">${num(p.value)}</td>
-        <td class="n">${p.pnl == null ? "-" : `${arrow(p.pnl)}${signed(p.pnl)} USDT (${signed(p.pnl_pct)}%)`}</td>
-        <td class="n">${p.stop ? price(p.stop) : "-"}</td></tr>`).join("")
-    : `<tr><td class="muted">Sem moedas em carteira. O bot ainda nao comprou nada.</td></tr>`;
+  renderPositions(rows, resort);
 }
 
-$("positions").addEventListener("click", (e) => {
+// A tabela so e reconstruida quando muda a lista, a ordem ou os filtros; entre dois ticks so os numeros mudam.
+// Assim os botoes de venda nao desaparecem debaixo do rato.
+function renderPositions(rows, resort) {
+  const tbl = $("positions");
+  if (resort || !posOrder.length) posOrder = sortRows(rows).map((p) => p.symbol);
+  const by = Object.fromEntries(rows.map((p) => [p.symbol, p]));
+  const shown = posOrder.filter((sym) => by[sym] && posVisible(by[sym]));
+  const sig = shown.join(",") + posSortKey + posSortDir;
+  if (!rows.length) { tbl.innerHTML = `<tr><td class="muted">Sem moedas em carteira. O bot ainda nao comprou nada.</td></tr>`; posTableSig = ""; return; }
+  if (!shown.length) { tbl.innerHTML = `<tr><td class="muted">Nenhuma posicao corresponde ao filtro.</td></tr>`; posTableSig = ""; return; }
+  if (sig !== posTableSig) {
+    posTableSig = sig;
+    tbl.innerHTML = `<tr>${POS_COLS.map(([k, label, c]) => `<th class="sortable ${c}" data-sort="${k}">${label}${k === posSortKey ? (posSortDir < 0 ? " ▼" : " ▲") : ""}</th>`).join("")}<th class="n">Vender</th></tr>` +
+      shown.map((sym) => `<tr class="click" data-symbol="${esc(sym)}"><td><b>${esc(sym)}</b></td><td class="n" data-f="qty"></td><td class="n" data-f="avg"></td>
+        <td class="n" data-f="price"></td><td class="n" data-f="value"></td><td class="n" data-f="res"></td><td class="n" data-f="stop"></td>
+        <td class="n sellcell"><button type="button" class="rowsell" data-sell="${esc(sym)}" data-pct="25">25%</button><button type="button" class="rowsell" data-sell="${esc(sym)}" data-pct="50">50%</button><button type="button" class="rowsell all" data-sell="${esc(sym)}" data-pct="100">Tudo</button></td></tr>`).join("");
+  }
+  tbl.querySelectorAll("tr.click").forEach((tr) => {
+    const p = by[tr.dataset.symbol];
+    if (!p) return;
+    // n: valor numerico; se mudou, a celula pisca (verde a subir, vermelho a descer)
+    const set = (f, v, html, n) => {
+      const td = tr.querySelector(`[data-f=${f}]`);
+      if (!td || td.dataset.v === String(v)) return;
+      const prev = Number(td.dataset.n);
+      td.dataset.v = v;
+      html ? (td.innerHTML = v) : (td.textContent = v);
+      if (n != null) {
+        td.dataset.n = n;
+        if (prev && n !== prev) { td.classList.remove("flash-up", "flash-down"); void td.offsetWidth; td.classList.add(n > prev ? "flash-up" : "flash-down"); }
+      }
+    };
+    set("qty", num(p.qty, 6)); set("avg", p.avg ? price(p.avg) : "-"); set("price", price(p.price), false, p.price); set("value", num(p.value), false, p.value);
+    set("res", p.pnl == null ? "-" : `${arrow(p.pnl)}${signed(p.pnl)} USDT (${signed(p.pnl_pct)}%)`, true); set("stop", p.stop ? price(p.stop) : "-");
+  });
+}
+
+$("positions").addEventListener("click", async (e) => {
+  const th = e.target.closest("th[data-sort]");
+  if (th) {
+    posSortDir = th.dataset.sort === posSortKey ? -posSortDir : -1;
+    posSortKey = th.dataset.sort;
+    store.set("posSort", posSortKey); store.set("posDir", posSortDir);
+    renderSummary(true);
+    return;
+  }
+  const btn = e.target.closest("button[data-sell]");
+  if (btn) {
+    const sym = btn.dataset.sell, pct = +btn.dataset.pct;
+    const p = liveRows().find((x) => x.symbol === sym);
+    const what = pct >= 100 ? "TODA a posicao" : `${pct}% da posicao`;
+    if (!confirm(`Vender ${what} em ${sym} ao preco de mercado?${p ? ` (valor atual ~${num(p.value * pct / 100)} USDT)` : ""}`)) return;
+    document.querySelectorAll("button.rowsell").forEach((b) => { b.disabled = true; });
+    try {
+      const o = await api("/api/sell", { symbol: sym, pct });
+      toast(`Vendido ${num(o.qty, 6)} ${sym} a ${price(o.price)} (${signed(o.pnl)} USDT)`);
+      Mascot.react(o.pnl < 0 ? "sad" : "happy", `Vendido ${sym}: ${signed(o.pnl)} USDT`);
+    } catch (err) {
+      toast(err.message, true);
+    }
+    posTableSig = "";
+    refreshAll();
+    return;
+  }
   const tr = e.target.closest("tr.click");
   if (!tr) return;
   $("symbol").value = tr.dataset.symbol;
@@ -256,15 +335,70 @@ $("positions").addEventListener("click", (e) => {
   window.scrollTo({ top: $("priceChart").offsetTop - 120, behavior: "smooth" });
 });
 
+function toast(msg, bad) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.className = "toast show" + (bad ? " bad" : "");
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => { t.className = "toast"; }, 5000);
+}
+
+/* ---------- Filtros (guardados no browser) ---------- */
+function bindFilters() {
+  [["posQ", posFilter, "q"], ["posRes", posFilter, "res"]].forEach(([id, obj, prop]) => {
+    $(id).value = obj[prop];
+    $(id).addEventListener("input", () => { obj[prop] = $(id).value; store.set(id, obj[prop]); posTableSig = ""; renderSummary(); });
+  });
+  ["fSide", "fRes", "fPeriod", "fQ"].forEach((id) => {
+    const saved = store.get(id);
+    if (saved != null) $(id).value = saved;
+    $(id).addEventListener("input", () => { store.set(id, $(id).value); renderTrades(); });
+  });
+  $("fSymbol").addEventListener("input", renderTrades);
+  $("fReset").onclick = () => {
+    ["fSide", "fRes", "fSymbol", "fQ"].forEach((id) => { $(id).value = ""; store.set(id, ""); });
+    $("fPeriod").value = "all"; store.set("fPeriod", "all");
+    renderTrades();
+  };
+}
+
+let allTrades = [], tradesSig = "";
+
 async function loadTrades() {
-  const ts = await api("/api/trades");
-  $("trades").innerHTML = ts.length
-    ? `<tr><th>Data</th><th>Lado</th><th>Moeda</th><th class="n">Preco</th><th class="n">USDT</th><th class="n">Resultado</th><th>Motivo</th></tr>` +
-      ts.map((t) => `<tr><td>${esc(new Date(t.ts * 1000).toLocaleString("pt-PT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}</td>
+  allTrades = await api("/api/trades");
+  const sel = $("fSymbol"), cur = sel.value || store.get("fSymbol") || "";
+  const syms = [...new Set(allTrades.map((t) => t.symbol))].sort();
+  if (sel.options.length - 1 !== syms.length) {
+    sel.innerHTML = `<option value="">Todas as moedas</option>` + syms.map((s) => `<option>${esc(s)}</option>`).join("");
+    if (syms.includes(cur)) sel.value = cur;
+  }
+  tradesSig = "";
+  renderTrades();
+}
+
+function renderTrades() {
+  store.set("fSymbol", $("fSymbol").value);
+  const side = $("fSide").value, res = $("fRes").value, sym = $("fSymbol").value, per = $("fPeriod").value, q = $("fQ").value.trim().toLowerCase();
+  const now = Date.now() / 1000;
+  const since = per === "today" ? new Date().setHours(0, 0, 0, 0) / 1000 : per === "7d" ? now - 7 * 86400 : per === "30d" ? now - 30 * 86400 : 0;
+  const rows = allTrades.filter((t) => (!side || t.side === side) && (!sym || t.symbol === sym) && t.ts >= since
+    && (!res || (t.side === "sell" && (res === "win" ? t.pnl > 0 : t.pnl < 0))) && (!q || `${t.symbol} ${t.why}`.toLowerCase().includes(q)));
+  const sells = rows.filter((t) => t.side === "sell");
+  const total = sells.reduce((a, t) => a + t.pnl, 0), wins = sells.filter((t) => t.pnl > 0).length;
+  const fees = rows.reduce((a, t) => a + (t.fee || 0), 0), bought = rows.filter((t) => t.side === "buy").reduce((a, t) => a + t.usdt, 0), sold = sells.reduce((a, t) => a + t.usdt, 0);
+  $("fSummary").textContent = `${rows.length} de ${allTrades.length} ordens | comprado ${num(bought)} USDT, vendido ${num(sold)} USDT | ${sells.length} vendas, ${sells.length ? Math.round(100 * wins / sells.length) : 0}% ganhas | comissoes ${num(fees, 4)} USDT | resultado ${signed(total)} USDT`;
+  const sig = JSON.stringify([side, res, sym, per, q, rows.length, rows[0]?.ts, total]);
+  if (sig === tradesSig) return;
+  tradesSig = sig;
+  $("trades").innerHTML = rows.length
+    ? `<tr><th>Data</th><th>Lado</th><th>Moeda</th><th class="n">Quantidade</th><th class="n">Preco</th><th class="n">Entrada media</th><th class="n">USDT</th><th class="n">Comissao</th><th class="n">Resultado</th><th class="n">Restante</th><th>Motivo</th></tr>` +
+      rows.map((t) => `<tr><td>${esc(new Date(t.ts * 1000).toLocaleString("pt-PT", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}</td>
         <td>${t.side === "buy" ? '<span class="up">▲</span> Compra' : '<span class="down">▼</span> Venda'}</td><td>${esc(t.symbol)}</td>
-        <td class="n">${price(t.price)}</td><td class="n">${num(t.usdt)}</td>
-        <td class="n">${t.side === "sell" ? `${arrow(t.pnl)}${signed(t.pnl)} USDT` : "-"}</td><td class="why">${esc(t.why)}</td></tr>`).join("")
-    : `<tr><td class="muted">Sem ordens ainda.</td></tr>`;
+        <td class="n">${num(t.qty, 6)}</td><td class="n">${price(t.price)}</td><td class="n">${t.avg ? price(t.avg) : "-"}</td><td class="n">${num(t.usdt)}</td>
+        <td class="n">${t.fee ? num(t.fee, 4) : "-"}</td>
+        <td class="n">${t.side === "sell" ? `${arrow(t.pnl)}${signed(t.pnl)} USDT${t.pnl_pct != null ? ` (${signed(t.pnl_pct)}%)` : ""}` : "-"}</td>
+        <td class="n">${t.left != null ? num(t.left, 6) : "-"}</td><td class="why">${esc(t.why)}</td></tr>`).join("")
+    : `<tr><td class="muted">Sem ordens que correspondam aos filtros.</td></tr>`;
 }
 
 /* ---------- Mercado e analise ---------- */
@@ -294,7 +428,8 @@ async function loadMarket() {
   }
 }
 
-const refreshSymbol = () => { loadMarket(); loadPrice().then(wsConnect); wsConnect(); };
+const dim = () => $("priceChart").classList.add("loading");           // esbate o grafico antigo ate chegarem as velas novas
+const refreshSymbol = () => { dim(); loadMarket(); loadPrice().then(wsConnect); wsConnect(); };
 
 let pending = null;
 
@@ -347,12 +482,44 @@ $("confirm").onclick = async () => {
 
 $("dismiss").onclick = () => { pending = null; $("result").hidden = true; };
 
+/* ---------- Mascote ---------- */
+const cut = (t, n = 90) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : String(t));
+const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+let seenLog = null;
+const logKey = (l) => `${l.t}|${l.kind}|${l.msg}`;
+
+function mascotUpdate(a) {
+  const act = a.activity || { kind: "idle", what: "" };
+  if (!a.enabled) Mascot.set("sleep", "Modo automatico desligado.");
+  else if (a.halted) Mascot.set("alert", "Pausado ate amanha: limite de perda diaria atingido.");
+  else if (act.kind === "think") Mascot.set("think", `${cap(act.what || "a pensar")}...`);
+  else if (act.kind === "scan") Mascot.set("scan", `${cap(act.what || "a vigiar")}...`);
+  else Mascot.set("idle", "Ligado. A espera do proximo ciclo.");
+  // Reage ao que acabou de acontecer. Na primeira leitura so memoriza, para nao reagir ao historico.
+  if (seenLog === null || seenLog.size > 600) { seenLog = new Set(a.log.map(logKey)); return; }
+  const fresh = a.log.filter((l) => !seenLog.has(logKey(l))).reverse();
+  fresh.forEach((l) => seenLog.add(logKey(l)));
+  const last = fresh.filter((l) => ["buy", "sell", "alert", "error"].includes(l.kind)).pop();
+  if (!last) return;
+  const pnl = /PnL ([+-]?\d+(?:\.\d+)?)/.exec(last.msg);
+  if (last.kind === "buy") Mascot.react("happy", cut(last.msg));
+  else if (last.kind === "sell") Mascot.react(pnl && Number(pnl[1]) < 0 ? "sad" : "happy", cut(last.msg));
+  else Mascot.react("alert", cut(last.msg));
+}
+Mascot.onClick(() => {
+  const s = window.lastSummary;
+  return s ? `${s.positions.length} moeda(s) em carteira | hoje ${signed(s.day_pnl)} USDT | perda ${num(s.daily_loss)} de ${num(s.max_daily_loss, 0)} USDT` : "";
+});
+
 /* ---------- Modo automatico ---------- */
 let autoOn = false;
 
 async function loadAuto() {
   const a = await api("/api/auto");
   autoOn = a.enabled;
+  mascotUpdate(a);
+  $("autoDot").className = "dot" + (a.enabled && !a.halted ? " on" : "");
+  $("autoDotText").textContent = a.halted ? "pausado" : a.enabled ? "auto ativo" : "auto parado";
   const b = $("autoToggle");
   b.textContent = a.enabled ? "Desligar modo automatico" : "Ligar modo automatico";
   b.className = a.enabled ? "on" : "";
@@ -382,16 +549,20 @@ async function refreshAll() {
 }
 
 $("symbol").onchange = refreshSymbol;
-$("tf").onchange = () => { loadPrice().then(wsConnect); wsConnect(); };
+$("tf").onchange = () => { dim(); loadPrice().then(wsConnect); wsConnect(); };
 
+initCharts();
+bindFilters();
 (async () => {
   await safe(loadSymbols);
   await safe(loadSummary);
   refreshSymbol();
   safe(loadEquity); safe(loadTrades); safe(loadAuto);
-  setInterval(() => safe(loadAuto), 5000);
-  setInterval(() => { safe(loadSummary); safe(loadTrades); }, 10000);   // posicoes e ordens do servidor
-  setInterval(() => safe(loadEquity), 60000);
-  setInterval(loadMarket, 30000);                                      // indicadores
+  setInterval(() => { if (!document.hidden) safe(loadAuto); }, 5000);
+  const visible = (fn) => () => { if (!document.hidden) fn(); };       // com o separador escondido nao se pede nada
+  setInterval(visible(() => { safe(loadSummary); safe(loadTrades); }), 10000);   // posicoes e ordens do servidor
+  setInterval(visible(() => safe(loadEquity)), 60000);
+  setInterval(visible(loadMarket), 30000);                                      // indicadores
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { safe(loadSummary); safe(loadPrice); } });
   setInterval(() => safe(loadSymbols), 300000);
 })();

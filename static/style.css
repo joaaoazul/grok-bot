@@ -33,6 +33,7 @@ h2 { font-size: 14px; margin: 0 0 12px; color: var(--muted); text-transform: upp
 .row h2 { margin: 0 auto 0 0; }
 .row select { width: auto; margin: 0; }
 .chart { position: relative; height: 260px; }
+.chart.tall { height: 360px; }
 .empty { margin: 8px 0 0; }
 .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 .legend .sw { display: inline-block; width: 18px; height: 0; border-top: 2px solid var(--series); vertical-align: middle; margin-right: 4px; }
@@ -75,3 +76,32 @@ tr.click { cursor: pointer; } tr.click:hover td { background: #1c212a; }
   .grid { grid-template-columns: 1fr; }
   .chart { height: 220px; }
 }
+
+.legend .sw.stop { border-top: 2px solid var(--bad); }
+.row input[type=search], .filters input { width: 170px; }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.filters select, .filters input, .filters button { width: auto; padding: 6px 10px; font-size: 13px; }
+.row input[type=search] { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--text); }
+.sellcell { white-space: nowrap; }
+button.rowsell { width: auto; padding: 3px 8px; margin-left: 4px; font-size: 12px; background: transparent; color: var(--bad); border-color: var(--bad); }
+button.rowsell:hover { background: var(--bad); color: #fff; }
+button.rowsell.all { background: var(--bad); color: #fff; }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 16px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90vw; }
+.toast.show { opacity: 1; } .toast.bad { border-color: var(--bad); color: #ffb3b1; }
+@media (max-width: 760px) { .chart.tall { height: 280px; } }
+
+/* ---------- fluidez ---------- */
+html { scroll-behavior: smooth; }
+button, select, input, .tab, .wrow, tr.row td, tr.click td, th.sortable { transition: background-color .15s ease, border-color .15s ease, color .15s ease, opacity .15s ease, box-shadow .15s ease; }
+button:active:not(:disabled) { transform: scale(.97); }
+.flash-up { animation: flashUp .7s ease-out; }
+.flash-down { animation: flashDown .7s ease-out; }
+@keyframes flashUp { from { background-color: rgba(38,166,154,.4); } to { background-color: transparent; } }
+@keyframes flashDown { from { background-color: rgba(239,83,80,.4); } to { background-color: transparent; } }
+.fade { animation: fadeIn .2s ease-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+#chart, #priceChart, #equityChart, #eqChart { transition: opacity .25s ease; }
+.loading { opacity: .35; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

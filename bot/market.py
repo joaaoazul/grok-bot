@@ -46,6 +46,21 @@ def candles(symbol, timeframe="15m", limit=120):
     return [[c[0], c[4]] for c in _public.fetch_ohlcv(symbol, timeframe, limit=limit)]
 
 
+_ohlcv_cache = {}
+_OHLCV_TTL = {"5m": 15, "15m": 30, "1h": 60, "4h": 120}
+
+
+def ohlcv(symbol, timeframe="15m", limit=200):
+    """[[ms, abertura, maximo, minimo, fecho, volume], ...] com cache curta (o ao vivo vem do WebSocket no browser)."""
+    key = (symbol, timeframe, limit)
+    hit = _ohlcv_cache.get(key)
+    if hit and time.time() - hit[0] < _OHLCV_TTL.get(timeframe, 30):
+        return hit[1]
+    rows = [list(c[:6]) for c in _public.fetch_ohlcv(symbol, timeframe, limit=limit)]
+    _ohlcv_cache[key] = (time.time(), rows)
+    return rows
+
+
 def _r(x):
     """6 algarismos significativos: nao zera precos minusculos (PEPE ~ 0.0000046)."""
     return float(f"{x:.6g}")
