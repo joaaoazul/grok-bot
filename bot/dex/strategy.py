@@ -491,14 +491,14 @@ class DexBot:
                     sim_txt = "OK" if res["sim_ok"] else "FALHOU: " + str(res["sim_err"])
                     self._say(f"[DRY-RUN] venda de {pos['name']} ({kind}): receberia ~{res['usd']:.2f} USD, simulacao {sim_txt}. Nada enviado.", "sell")
                     return
-                proceeds = res["usd"]
+                proceeds, sig = res["usd"], res.get("sig")
             except Exception as exc:
                 if kind == "rug" and pos["miss"] >= 6:
                     proceeds = 0.0   # a pool sumiu e a venda nao passa: dar como perdido
                 else:
                     self._say(f"{pos['name']}: venda ({kind}) falhou, tento outra vez no proximo ciclo. {exc}", "error")
                     return
-        rec = self.sim.sell(pos_id, kind, proceeds)
+        rec = self.sim.sell(pos_id, kind, proceeds, detail=detail, sig=sig)
         if rec:
             self._say(f"VENDA {rec['name']} ({kind}: {detail}): {rec['pnl_usd']:+.2f} USD ({rec['pnl_pct']:+.0f}%)", "sell" if rec["pnl_usd"] > 0 else "alert")
 
@@ -525,7 +525,10 @@ class DexBot:
                               "cost": round(p["cost"], 2), "value": round(nv, 2),
                               "pnl_pct": round(self.sim.pnl_pct(p), 1), "peak_pct": round(p["peak_pnl_pct"], 1),
                               "held_min": round((time.time() - p["ts"]) / 60), "liq": p["last_liq"], "confidence": p["confidence"],
-                              "target_pct": p.get("target_pct")})
+                              "target_pct": p.get("target_pct"),
+                              "tokens": p["tokens"], "entry_ts": p["ts"], "entry_liq": p.get("entry_liq"), "real": bool(p.get("real")),
+                              "buy_cost_usd": round(p["cost"] - p["tokens"] * p["entry_price"], 4),      # comissao + impacto pagos a comprar
+                              "gross": round(p["tokens"] * p["last_price"], 4), "exit_cost": round(p["tokens"] * p["last_price"] - nv, 4)})  # o que custaria sair agora
         eq = self.sim.equity()
         return {"enabled": self.enabled, "cash": round(s["cash"], 2), "equity": round(eq, 2), "start": s["start"],
                 "pnl_usd": round(eq - s["start"], 2), "positions": positions, "max_positions": config.DEX_MAX_POSITIONS,

@@ -89,7 +89,7 @@ def state():
         return _load()
 
 
-def record(side, symbol, qty, price, why=""):
+def record(side, symbol, qty, price, why="", fee=0.0):
     """Atualiza custo medio e PnL realizado. Devolve o PnL realizado desta ordem (0 nas compras)."""
     with _lock:
         s = _load()
@@ -106,10 +106,14 @@ def record(side, symbol, qty, price, why=""):
             pos["qty"] -= sold
             s["realized_today"] = s.get("realized_today", 0.0) + pnl
         s["cost"][symbol] = pos
+        entry_avg = pos["avg"]
         s["last_trade"][symbol] = time.time()
         trades = s.setdefault("trades", [])
         trades.append({"ts": int(time.time()), "side": side, "symbol": symbol, "price": price, "qty": qty,
-                       "usdt": round(qty * price, 2), "pnl": round(pnl, 2), "why": why})
+                       "usdt": round(qty * price, 2), "pnl": round(pnl, 2), "why": why,
+                       "fee": round(fee, 6), "left": round(pos["qty"], 8),
+                       "avg": round(entry_avg, 8) if side == "sell" and entry_avg else None,
+                       "pnl_pct": round((price / entry_avg - 1) * 100, 2) if side == "sell" and entry_avg else None})
         s["trades"] = trades[-500:]
         _save(s)
         return pnl

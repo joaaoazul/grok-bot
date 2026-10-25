@@ -4,7 +4,7 @@ from . import ledger, market
 def execute(broker, side, symbol, usdt, why=""):
     """Unico ponto por onde passam ordens (manuais e automaticas): executa e regista no ledger."""
     res = broker.order(side, symbol, usdt)
-    res["pnl"] = round(ledger.record(side, symbol, res["qty"], res["price"], why), 2)
+    res["pnl"] = round(ledger.record(side, symbol, res["qty"], res["price"], why, res.get("fee_usdt", 0.0)), 2)
     return res
 
 

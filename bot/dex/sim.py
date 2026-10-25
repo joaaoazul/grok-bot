@@ -96,7 +96,7 @@ class DexPaper:
                 self._save()
             return pos
 
-    def sell(self, pos_id, kind, proceeds=None):
+    def sell(self, pos_id, kind, proceeds=None, detail="", sig=None):
         """Vende tudo ao preco da ultima observacao. Se a pool desapareceu (kind rug), recebe 0."""
         with _lock:
             pos = self.s["positions"].pop(pos_id, None)
@@ -105,11 +105,18 @@ class DexPaper:
             if proceeds is None:   # simulacao: calcula; real: vem do que a carteira recebeu
                 proceeds = 0.0 if kind == "rug" else net_value(pos["tokens"], pos["last_price"], pos["last_liq"])
             self.s["cash"] += proceeds
+            gross = pos["tokens"] * pos["last_price"]          # valor de mercado da saida, antes de impacto e comissao
             rec = {**{k: pos[k] for k in ("id", "name", "network", "cost", "entry_price", "confidence", "reason", "features")},
                    "target_pct": pos.get("target_pct"),
                    "exit_price": pos["last_price"], "proceeds": round(proceeds, 2), "kind": kind,
                    "pnl_usd": round(proceeds - pos["cost"], 2), "pnl_pct": round((proceeds / pos["cost"] - 1) * 100, 1),
-                   "peak_pnl_pct": round(pos["peak_pnl_pct"], 1), "held_min": round((time.time() - pos["ts"]) / 60), "ts": int(time.time())}
+                   "peak_pnl_pct": round(pos["peak_pnl_pct"], 1), "held_min": round((time.time() - pos["ts"]) / 60), "ts": int(time.time()),
+                   # detalhe: quantidade, de onde vem o resultado e quanto se perdeu em comissoes, impacto no preco e slippage
+                   "tokens": pos["tokens"], "entry_ts": pos["ts"], "entry_liq": pos.get("entry_liq"), "exit_liq": pos.get("last_liq"),
+                   "gross_usd": round(gross, 4), "buy_cost_usd": round(pos["cost"] - pos["tokens"] * pos["entry_price"], 4),
+                   "sell_cost_usd": round(gross - proceeds, 4), "detail": str(detail)[:200], "real": bool(pos.get("real")),
+                   "buy_sig": pos.get("sig"), "sell_sig": sig,
+                   "stop_pct": pos.get("stop_pct"), "conviction": pos.get("conviction")}
             self.s["closed"] = (self.s["closed"] + [rec])[-300:]
             self._save()
             return rec
