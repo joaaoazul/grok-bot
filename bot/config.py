@@ -20,6 +20,8 @@ MAX_ORDER_USDT = float(os.getenv("MAX_ORDER_USDT", "50"))
 MAX_DAILY_LOSS_USDT = float(os.getenv("MAX_DAILY_LOSS_USDT", "100"))
 PAPER_START_USDT = float(os.getenv("PAPER_START_USDT", "1000"))
 MAX_EXPOSURE_USDT = float(os.getenv("MAX_EXPOSURE_USDT", "200"))
+# O bot so pode usar esta percentagem da carteira (Binance e DEX). O resto fica livre para taxas da rede e outros custos.
+WALLET_USE_PCT = max(1.0, min(100.0, float(os.getenv("WALLET_USE_PCT", "95"))))
 
 # Modo automatico
 AUTO_INTERVAL_SEC = int(os.getenv("AUTO_INTERVAL_SEC", "900"))

@@ -17,7 +17,7 @@
     <h1>Grok Trader <span class="slash">/ BINANCE</span></h1>
     <span class="tag" id="mode">...</span>
     <span class="tag ws-off" id="liveTag" title="Precos em tempo real, direto da Binance">○ a ligar</span>
-    <span class="muted">{{ model }} · max {{ max_order }} USDT por ordem</span>
+    <span class="muted">{{ model }} · max {{ max_order }} USDT por ordem · usa ate {{ '%g'|format(wallet_use) }}% da carteira</span>
     <span class="status"><i class="dot" id="autoDot"></i><span id="autoDotText">auto parado</span></span>
     <div class="hud" id="hud" data-bot="auto"><span>UPTIME<b id="hUp">--:--:--</b></span><span>CICLO<b id="hCy">#-</b></span><span>PID<b id="hPid">-</b></span></div>
     <a class="navlink" href="/dex">DEX</a>

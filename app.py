@@ -27,7 +27,7 @@ def _allowed(symbol):
 def index():
     return render_template("index.html", model=config.GROK_MODEL, max_order=config.MAX_ORDER_USDT,
                            interval=config.AUTO_INTERVAL_SEC, stop_loss=config.STOP_LOSS_PCT,
-                           take_profit=config.TAKE_PROFIT_PCT, max_loss=config.MAX_DAILY_LOSS_USDT)
+                           take_profit=config.TAKE_PROFIT_PCT, max_loss=config.MAX_DAILY_LOSS_USDT, wallet_use=config.WALLET_USE_PCT)
 
 
 @app.get("/api/sys")

@@ -21,7 +21,9 @@ def validate(proposal, broker):
     if side == "buy":
         if ledger.daily_loss(broker) >= config.MAX_DAILY_LOSS_USDT:
             return None, "Limite de perda diaria atingido: compras bloqueadas ate amanha."
-        usdt = min(usdt, broker.balance_usdt(), config.MAX_EXPOSURE_USDT - ledger.exposure(broker))
+        exposure = ledger.exposure(broker)
+        room = config.WALLET_USE_PCT / 100 * ledger.equity(broker) - exposure      # o resto da carteira fica livre para taxas
+        usdt = min(usdt, broker.balance_usdt(), config.MAX_EXPOSURE_USDT - exposure, room)
         if usdt < 5:
-            return None, "Sem saldo ou limite de exposicao total atingido."
+            return None, f"Sem saldo, limite de exposicao total ou reserva de {100 - config.WALLET_USE_PCT:g}% da carteira atingidos."
     return {"action": side, "symbol": symbol, "usdt": round(usdt, 2)}, None

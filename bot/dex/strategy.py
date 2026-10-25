@@ -181,6 +181,20 @@ class DexBot:
             return f"perda do dia de {lost / fx.eur_usd():.2f} EUR atingiu o limite"
         return None
 
+    def _room(self):
+        """Dolares que ainda se podem gastar numa compra nova, deixando livre (100 - WALLET_USE_PCT)% da carteira para taxas da rede
+        e outros custos. Em modo real conta tambem o saldo de SOL da carteira. Devolve (dolares, motivo_se_nao_conseguiu_ler)."""
+        keep = 1 - config.WALLET_USE_PCT / 100
+        equity = self.sim.equity()
+        room = self.sim.s["cash"] - keep * equity
+        if self.live:
+            try:
+                sol_usd = self.live.wallet_usd()
+            except Exception as exc:
+                return 0.0, f"nao consegui ler o saldo da carteira ({exc})"
+            room = min(room, sol_usd - keep * (sol_usd + equity - self.sim.s["cash"]))
+        return max(room, 0.0), None
+
     def _today(self):
         day = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
         rows = [r for r in self.sim.s["closed"] if r["ts"] >= day]
@@ -262,8 +276,12 @@ class DexBot:
             if why:
                 self._say(f"Compras bloqueadas: {why}.", "alert")
                 return
-        if len(s["positions"]) >= config.DEX_MAX_POSITIONS or s["cash"] < config.DEX_MIN_SIZE_EUR * fx.eur_usd():
-            self._say("Sem vaga ou sem saldo virtual: a esperar que as posicoes fechem.")
+        room, why = self._room()
+        if why:
+            self._say(f"Compras em pausa: {why}.", "alert")
+            return
+        if len(s["positions"]) >= config.DEX_MAX_POSITIONS or room < config.DEX_MIN_SIZE_EUR * fx.eur_usd():
+            self._say(f"Sem vaga ou sem saldo livre (a carteira guarda {100 - config.WALLET_USE_PCT:g}% para taxas): a esperar que as posicoes fechem.")
             return
         pools = {}
         fns = []
@@ -357,9 +375,13 @@ class DexBot:
         rate = fx.eur_usd()
         lo, hi = config.DEX_MIN_SIZE_EUR * rate, config.DEX_MAX_SIZE_EUR * rate
         want = _num(proposal.get("size_eur")) * rate or hi * conf
-        size = min(max(want, lo), hi, p["liq"] * 0.005, self.sim.s["cash"])  # no maximo 0,5% da liquidez: impacto pequeno
+        room, why = self._room()
+        if why:
+            self._say(f"{p['name']}: {why}.", "alert")
+            return
+        size = min(max(want, lo), hi, p["liq"] * 0.005, room)  # no maximo 0,5% da liquidez (impacto pequeno) e so o que a carteira deixa gastar
         if size < lo:
-            self._say(f"{p['name']}: sem saldo virtual para a ordem minima de {config.DEX_MIN_SIZE_EUR:g} EUR.")
+            self._say(f"{p['name']}: sem saldo livre para a ordem minima de {config.DEX_MIN_SIZE_EUR:g} EUR (a carteira guarda {100 - config.WALLET_USE_PCT:g}% para taxas).")
             return
         target = min(max(_num(proposal.get("target_pct")) or config.DEX_TP_DEFAULT_PCT, config.DEX_TP_MIN_PCT), config.DEX_TP_MAX_PCT)
         # Stop proprio desta compra: o Grok propoe, a conviccao (confianca, tamanho, volume de compra) limita
@@ -570,5 +592,5 @@ class DexBot:
                 "today": self._today(), "scan_sec": config.DEX_SCAN_SEC,
                 "mode": "live" if self.live else "paper", "dry_run": bool(self.live and self.live.dry),
                 "rules": {"size_min": config.DEX_MIN_SIZE_EUR, "size_max": config.DEX_MAX_SIZE_EUR, "eurusd": round(fx.eur_usd(), 4),
-                          "tp_min": config.DEX_TP_MIN_PCT, "tp_max": config.DEX_TP_MAX_PCT, "stop": config.DEX_STOP_PCT, "stop_min": config.DEX_STOP_MIN_PCT, "stop_max": config.DEX_STOP_MAX_PCT, "fee": config.DEX_FEE_PCT,
+                          "tp_min": config.DEX_TP_MIN_PCT, "tp_max": config.DEX_TP_MAX_PCT, "wallet_use_pct": config.WALLET_USE_PCT, "stop": config.DEX_STOP_PCT, "stop_min": config.DEX_STOP_MIN_PCT, "stop_max": config.DEX_STOP_MAX_PCT, "fee": config.DEX_FEE_PCT,
                           "min_liq": config.DEX_MIN_LIQ_USD, "max_hold_h": config.DEX_MAX_HOLD_H, "networks": self.networks}}
