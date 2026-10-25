@@ -193,6 +193,12 @@ class DexBot:
             s["cash"] = sol_usd
             if not s["positions"] and not s["closed"]:
                 s["start"] = sol_usd
+            elif not s.get("wallet_budget"):
+                # Migracao unica de um estado antigo (orcamento fixo): o capital inicial passa a ser o que a carteira tem agora mais o custo
+                # das posicoes abertas, menos o que ja se ganhou ou perdeu. Assim o "resultado total" nao conta a diferenca como lucro.
+                realized = sum(r.get("pnl_usd", 0.0) for r in s["closed"])
+                s["start"] = sol_usd + sum(p["cost"] for p in s["positions"].values()) - realized
+            s["wallet_budget"] = True
             self.sim._save()
         return sol_usd, None
 
