@@ -10,11 +10,18 @@ _PATH = os.path.join(config.DATA_DIR, "equity.json")
 _lock = threading.Lock()
 
 
+_mem = None   # copia em memoria: evita reler o ficheiro a cada pedido
+
+
 def _load():
-    if os.path.exists(_PATH):
-        with open(_PATH, encoding="utf-8") as f:
-            return json.load(f)
-    return []
+    global _mem
+    if _mem is None:
+        if os.path.exists(_PATH):
+            with open(_PATH, encoding="utf-8") as f:
+                _mem = json.load(f)
+        else:
+            _mem = []
+    return _mem
 
 
 def add(value, min_gap=60):
@@ -24,9 +31,10 @@ def add(value, min_gap=60):
         if points and now - points[-1][0] < min_gap:
             return
         points.append([now, round(value, 2)])
+        del points[:-4000]
         os.makedirs(os.path.dirname(_PATH), exist_ok=True)
         with open(_PATH, "w", encoding="utf-8") as f:
-            json.dump(points[-4000:], f)
+            json.dump(points, f)
 
 
 def series():

@@ -74,6 +74,7 @@ class DexBot:
         self._fresh = {}     # id -> ultimos dados da pool
         self._reviewed = {}  # id -> ultima reavaliacao de saida pelo Grok
         self._reviewing = set()
+        self._exit_lock = threading.RLock()   # evita vender a mesma posicao duas vezes (vigilante + botao)
 
     def _note(self, p, decision, reason="", **extra):
         """Guarda cada moeda analisada com a decisao e os numeros que a justificam, para a pagina de pesquisas."""
@@ -475,7 +476,11 @@ class DexBot:
             return self._exit(pos["id"], "tempo", f"{held_h:.1f}h em carteira, {pnl:+.0f}%")
 
     def _exit(self, pos_id, kind, detail):
-        proceeds = None
+        with self._exit_lock:
+            return self._exit_locked(pos_id, kind, detail)
+
+    def _exit_locked(self, pos_id, kind, detail):
+        proceeds = sig = None
         if self.live:
             pos = self.sim.s["positions"].get(pos_id)
             if not pos:
@@ -497,6 +502,16 @@ class DexBot:
         if rec:
             self._say(f"VENDA {rec['name']} ({kind}: {detail}): {rec['pnl_usd']:+.2f} USD ({rec['pnl_pct']:+.0f}%)", "sell" if rec["pnl_usd"] > 0 else "alert")
 
+    def sell_one(self, pos_id):
+        """Venda manual de uma so posicao. Devolve (vendida, mensagem)."""
+        pos = self.sim.s["positions"].get(pos_id)
+        if not pos:
+            return False, "Posicao ja nao existe."
+        self._exit(pos_id, "manual", "venda manual")
+        if pos_id in self.sim.s["positions"]:
+            return False, "Nao vendeu (dry-run ou erro). Ver o registo."
+        return True, f"{pos['name']} vendida."
+
     # ---------- vista para a interface ----------
     def status(self):
         s = self.sim.s
@@ -514,9 +529,9 @@ class DexBot:
         eq = self.sim.equity()
         return {"enabled": self.enabled, "cash": round(s["cash"], 2), "equity": round(eq, 2), "start": s["start"],
                 "pnl_usd": round(eq - s["start"], 2), "positions": positions, "max_positions": config.DEX_MAX_POSITIONS,
-                "closed": list(reversed(s["closed"][-30:])), "stats": self.sim.stats(), "funnel": self.funnel, "last_scan": self.last_scan,
+                "closed": [{k: v for k, v in r.items() if k != "features"} for r in reversed(s["closed"][-200:])], "stats": self.sim.stats(), "funnel": self.funnel, "last_scan": self.last_scan,
                 "equity_curve": s["equity"][-300:], "log": list(self.log)[:120],
-                "analysed": list(self.analysed)[:150], "scans": list(self.scans)[:40], "wallet": self._wallet_info(),
+                "analysed": [{k: v for k, v in a.items() if k != "velas"} for a in list(self.analysed)[:150]], "scans": list(self.scans)[:40], "wallet": self._wallet_info(),
                 "today": self._today(), "scan_sec": config.DEX_SCAN_SEC,
                 "mode": "live" if self.live else "paper", "dry_run": bool(self.live and self.live.dry),
                 "rules": {"size_min": config.DEX_MIN_SIZE_EUR, "size_max": config.DEX_MAX_SIZE_EUR, "eurusd": round(fx.eur_usd(), 4),
