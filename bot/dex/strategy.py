@@ -107,6 +107,13 @@ class DexBot:
                 self._wallet["t"] = time.time() - 10   # tenta de novo daqui a 10 s
         return {k: v for k, v in self._wallet.items() if k != "t"} or {"address": self.live.owner}
 
+    def _set(self, kind, what=""):
+        self.activity = {"kind": kind, "what": what}
+
+    def _rest(self):
+        """Volta ao estado de fundo: a procurar se houver uma procura a decorrer, senao em repouso."""
+        self._set("scan", "a procurar pools") if self._scanning else self._set("idle")
+
     def _say(self, msg, kind="info"):
         self.log.appendleft({"t": datetime.now().strftime("%H:%M:%S"), "kind": kind, "msg": msg})
 
@@ -133,10 +140,15 @@ class DexBot:
 
     def _scan_loop(self):
         while not self._stop.is_set():
+            self._scanning = True
+            self._set("scan", "a procurar pools")
             try:
                 self.scan()
             except Exception as exc:
                 self._say(f"Erro na procura: {exc}", "error")
+            finally:
+                self._scanning = False
+                self._rest()
             self.last_scan = datetime.now().strftime("%H:%M:%S")
             self.cycles += 1
             self._stop.wait(config.DEX_SCAN_SEC)
@@ -329,7 +341,11 @@ class DexBot:
                 "limites": {"ordem_min_eur": config.DEX_MIN_SIZE_EUR, "ordem_max_eur": config.DEX_MAX_SIZE_EUR,
                             "alvo_min_pct": config.DEX_TP_MIN_PCT, "alvo_max_pct": config.DEX_TP_MAX_PCT,
                             "stop_min_pct": config.DEX_STOP_MIN_PCT, "stop_max_pct": config.DEX_STOP_MAX_PCT}}
-        proposal = analyst.analyse_dex(feat, self._memory())
+        self._set("think", f"a analisar {p['name']} com o Grok")
+        try:
+            proposal = analyst.analyse_dex(feat, self._memory())
+        finally:
+            self._rest()
         conf = float(proposal.get("confidence") or 0)
         reason = str(proposal.get("reason", ""))
         if proposal.get("action") != "buy" or conf < config.DEX_MIN_CONF:
@@ -428,6 +444,7 @@ class DexBot:
         threading.Thread(target=self._review, args=(pid, ctx), daemon=True).start()
 
     def _review(self, pid, ctx):
+        self._set("think", "a reavaliar a saida de uma posicao")
         try:
             r = analyst.review_dex(ctx)
             if pid in self.sim.s["positions"] and r.get("action") == "sell" and float(r.get("confidence") or 0) >= 0.5:
@@ -436,6 +453,7 @@ class DexBot:
             self._say(f"Reavaliacao de saida: {exc}", "error")
         finally:
             self._reviewing.discard(pid)
+            self._rest()
 
     def _danger(self, pos, fresh):
         """Sinais de problema numa posicao aberta. Se houver um, o bot vende logo em vez de esperar pelo stop."""
@@ -544,7 +562,7 @@ class DexBot:
                               "buy_cost_usd": round(p["cost"] - p["tokens"] * p["entry_price"], 4),      # comissao + impacto pagos a comprar
                               "gross": round(p["tokens"] * p["last_price"], 4), "exit_cost": round(p["tokens"] * p["last_price"] - nv, 4)})  # o que custaria sair agora
         eq = self.sim.equity()
-        return {"enabled": self.enabled, "cash": round(s["cash"], 2), "equity": round(eq, 2), "start": s["start"],
+        return {"enabled": self.enabled, "activity": self.activity, "cash": round(s["cash"], 2), "equity": round(eq, 2), "start": s["start"],
                 "pnl_usd": round(eq - s["start"], 2), "positions": positions, "max_positions": config.DEX_MAX_POSITIONS,
                 "closed": [{k: v for k, v in r.items() if k != "features"} for r in reversed(s["closed"][-200:])], "stats": self.sim.stats(), "funnel": self.funnel, "last_scan": self.last_scan,
                 "equity_curve": s["equity"][-300:], "log": list(self.log)[:120],

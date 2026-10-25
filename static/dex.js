@@ -393,6 +393,30 @@ function bindFilters() {
   });
 }
 
+// ---------- mascote ----------
+const cut = (t, n = 90) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : String(t));
+const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+let seenLog = null;
+const logKey = (l) => `${l.t}|${l.kind}|${l.msg}`;
+
+function mascotUpdate(s) {
+  const act = s.activity || { kind: "idle", what: "" };
+  if (!s.enabled) Mascot.set("sleep", "Parado. Carrega em LIGAR para me acordar.");
+  else if (act.kind === "think") Mascot.set("think", `${cap(act.what || "a pensar")}...`);
+  else if (act.kind === "scan") Mascot.set("scan", `${cap(act.what || "a procurar")}...`);
+  else Mascot.set("idle", s.positions.length ? `A vigiar ${s.positions.length} posicao(oes).` : "Ligado. A espera de uma boa entrada.");
+  // Reage ao que acabou de acontecer no registo. Na primeira leitura so memoriza, para nao reagir ao historico.
+  if (seenLog === null || seenLog.size > 600) { seenLog = new Set(s.log.map(logKey)); return; }
+  const fresh = s.log.filter((l) => !seenLog.has(logKey(l))).reverse();
+  fresh.forEach((l) => seenLog.add(logKey(l)));
+  const last = fresh.filter((l) => ["buy", "sell", "alert", "error"].includes(l.kind)).pop();
+  if (!last) return;
+  if (last.kind === "buy" || last.kind === "sell") Mascot.react("happy", cut(last.msg));
+  else if (/^VENDA/.test(last.msg)) Mascot.react("sad", cut(last.msg));        // venda com perda
+  else Mascot.react("alert", cut(last.msg));
+}
+Mascot.onClick(() => (S ? `${S.positions.length} posicao(oes) | hoje ${signed(S.today.pnl_usd)} USD | ${S.last_scan ? `ultima procura ${S.last_scan}` : "sem procuras ainda"}` : ""));
+
 // ---------- render geral ----------
 function render(s) {
   S = s;
@@ -434,6 +458,7 @@ function render(s) {
   $("nAnalysed").textContent = s.analysed.length || "";
 
   syncFilterOptions();
+  mascotUpdate(s);
   const pos = sel && s.positions.find((p) => p.id === sel.id);
   setLines(pos);
   if (pos) tickLast(pos.price);

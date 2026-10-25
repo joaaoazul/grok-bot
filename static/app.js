@@ -320,6 +320,7 @@ $("positions").addEventListener("click", async (e) => {
     try {
       const o = await api("/api/sell", { symbol: sym, pct });
       toast(`Vendido ${num(o.qty, 6)} ${sym} a ${price(o.price)} (${signed(o.pnl)} USDT)`);
+      Mascot.react(o.pnl < 0 ? "sad" : "happy", `Vendido ${sym}: ${signed(o.pnl)} USDT`);
     } catch (err) {
       toast(err.message, true);
     }
@@ -481,12 +482,42 @@ $("confirm").onclick = async () => {
 
 $("dismiss").onclick = () => { pending = null; $("result").hidden = true; };
 
+/* ---------- Mascote ---------- */
+const cut = (t, n = 90) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : String(t));
+const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+let seenLog = null;
+const logKey = (l) => `${l.t}|${l.kind}|${l.msg}`;
+
+function mascotUpdate(a) {
+  const act = a.activity || { kind: "idle", what: "" };
+  if (!a.enabled) Mascot.set("sleep", "Modo automatico desligado.");
+  else if (a.halted) Mascot.set("alert", "Pausado ate amanha: limite de perda diaria atingido.");
+  else if (act.kind === "think") Mascot.set("think", `${cap(act.what || "a pensar")}...`);
+  else if (act.kind === "scan") Mascot.set("scan", `${cap(act.what || "a vigiar")}...`);
+  else Mascot.set("idle", "Ligado. A espera do proximo ciclo.");
+  // Reage ao que acabou de acontecer. Na primeira leitura so memoriza, para nao reagir ao historico.
+  if (seenLog === null || seenLog.size > 600) { seenLog = new Set(a.log.map(logKey)); return; }
+  const fresh = a.log.filter((l) => !seenLog.has(logKey(l))).reverse();
+  fresh.forEach((l) => seenLog.add(logKey(l)));
+  const last = fresh.filter((l) => ["buy", "sell", "alert", "error"].includes(l.kind)).pop();
+  if (!last) return;
+  const pnl = /PnL ([+-]?\d+(?:\.\d+)?)/.exec(last.msg);
+  if (last.kind === "buy") Mascot.react("happy", cut(last.msg));
+  else if (last.kind === "sell") Mascot.react(pnl && Number(pnl[1]) < 0 ? "sad" : "happy", cut(last.msg));
+  else Mascot.react("alert", cut(last.msg));
+}
+Mascot.onClick(() => {
+  const s = window.lastSummary;
+  return s ? `${s.positions.length} moeda(s) em carteira | hoje ${signed(s.day_pnl)} USDT | perda ${num(s.daily_loss)} de ${num(s.max_daily_loss, 0)} USDT` : "";
+});
+
 /* ---------- Modo automatico ---------- */
 let autoOn = false;
 
 async function loadAuto() {
   const a = await api("/api/auto");
   autoOn = a.enabled;
+  mascotUpdate(a);
   $("autoDot").className = "dot" + (a.enabled && !a.halted ? " on" : "");
   $("autoDotText").textContent = a.halted ? "pausado" : a.enabled ? "auto ativo" : "auto parado";
   const b = $("autoToggle");

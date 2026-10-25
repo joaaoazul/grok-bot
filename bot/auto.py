@@ -47,10 +47,12 @@ class AutoTrader:
 
     def _run(self):
         while not self._stop.is_set():
+            self.activity = {"kind": "scan", "what": "a vigiar o mercado"}
             try:
                 self._tick()
             except Exception as exc:
                 self._say(f"Erro no ciclo: {exc}", "error")
+            self.activity = {"kind": "idle", "what": ""}
             self.last_tick = datetime.now().strftime("%H:%M:%S")
             self.cycles += 1
             self._stop.wait(config.AUTO_INTERVAL_SEC)
@@ -163,8 +165,12 @@ class AutoTrader:
         else:
             position = f"Sem posicao em {base}."
         snap = market.snapshot(symbol, config.AUTO_TIMEFRAME)
-        proposal = analyst.analyse(snap, self.broker.portfolio(), f"Modo automatico agressivo. {position} Decide agora.",
-                                   memory=journal.memory())
+        self.activity = {"kind": "think", "what": f"a analisar {symbol} com o Grok"}
+        try:
+            proposal = analyst.analyse(snap, self.broker.portfolio(), f"Modo automatico agressivo. {position} Decide agora.",
+                                       memory=journal.memory())
+        finally:
+            self.activity = {"kind": "scan", "what": "a vigiar o mercado"}
         action = proposal.get("action")
         conf = float(proposal.get("confidence") or 0)
         proposal["symbol"] = symbol  # so decide sobre o par que foi analisado

@@ -1,0 +1,140 @@
+/* Bit, a mascote: uma imagem por estado (static/mascot/*.webp), com troca suave, movimento proprio de cada estado e passeio pela pagina.
+   O elemento e posicionado por JS com transform; so o corpo central apanha cliques, por isso nao tapa os botoes por baixo. */
+.mascot {
+  --mc: var(--dry); --ms: 168px;
+  position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none; will-change: transform; user-select: none; touch-action: none;
+}
+.mascot[data-state="sleep"] { --mc: var(--muted); }
+.mascot[data-state="idle"], .mascot[data-state="scan"], .mascot[data-state="think"] { --mc: var(--dry); }
+.mascot[data-state="happy"] { --mc: var(--good); }
+.mascot[data-state="sad"] { --mc: var(--bad); }
+.mascot[data-state="alert"] { --mc: var(--warn); }
+
+.m-stage { position: relative; width: var(--ms); height: var(--ms); pointer-events: none; }
+.mascot.min .m-stage { width: 30px; height: 30px; }
+
+.m-shadow {
+  position: absolute; left: 24%; right: 24%; bottom: 3%; height: 7%; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(ellipse at center, var(--mc) 0%, transparent 70%); opacity: .26; filter: blur(2px);
+  transform: translateX(calc(var(--ex, 0px) * -1.6)) scaleX(calc(1 - var(--ry-n, 0) * .08));       /* a sombra desloca-se ao contrario: da profundidade */
+  transition: opacity .3s, transform .28s cubic-bezier(.2, .8, .3, 1);
+}
+.mascot[data-state="sleep"] .m-shadow { opacity: .1; }
+.mascot.min .m-shadow { display: none; }
+
+.mascot-body {
+  position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; border-radius: 12px; pointer-events: none;
+}
+.mascot-body:hover:not(:disabled) { box-shadow: none; border-color: transparent; }
+.mascot-body:active { transform: none; }
+.mascot-body:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
+.mascot.min .mascot-body, .mascot.min .m-hit, .mascot.min .m-tools { display: none; }
+
+/* so o corpo do robo apanha cliques: os cantos da imagem deixam passar o rato para a pagina */
+.m-hit { position: absolute; inset: 12% 24% 4% 24%; pointer-events: auto; cursor: grab; border-radius: 38%; }
+.mascot.dragging .m-hit { cursor: grabbing; }
+
+.m-tools {
+  position: absolute; top: 4%; right: 14%; display: flex; gap: 4px; pointer-events: auto;
+  opacity: 0; visibility: hidden; transition: opacity .15s .4s, visibility 0s .55s;
+}
+.m-stage:hover .m-tools, .m-tools:focus-within { opacity: 1; visibility: visible; transition-delay: 0s; }
+.mascot-hide, .mascot-roam {
+  width: 22px; height: 22px; padding: 0; border-radius: 50%; font-size: 12px; line-height: 1; letter-spacing: 0;
+  background: var(--panel); color: var(--muted); border: 1px solid var(--line2);
+}
+.mascot-roam.off { color: var(--muted2); text-decoration: line-through; }
+.mascot-pill {
+  display: none; width: 30px; height: 30px; padding: 0; border-radius: 50%; background: var(--panel); border: 1px solid var(--line2);
+  align-items: center; justify-content: center; pointer-events: auto;
+}
+.mascot-pill i { width: 9px; height: 9px; border-radius: 50%; background: var(--mc); box-shadow: 0 0 10px var(--mc); display: block; }
+.mascot.min .mascot-pill { display: inline-flex; }
+
+/* ---------- balao (fora do fluxo, para nao mexer no tamanho do Bit) ---------- */
+.mascot-bubble {
+  position: absolute; bottom: calc(100% - 16px); right: 6px; width: max-content; max-width: 250px; padding: 7px 10px;
+  background: var(--panel); border: 1px solid var(--line2); border-radius: 2px; font: 11px/1.5 var(--mono); color: var(--text);
+  opacity: 0; transform: translateY(4px); pointer-events: none; transition: opacity .18s ease, transform .18s ease;
+}
+.mascot-bubble::after {
+  content: ""; position: absolute; bottom: -5px; right: 64px; width: 8px; height: 8px; background: var(--panel);
+  border-right: 1px solid var(--line2); border-bottom: 1px solid var(--line2); transform: rotate(45deg);
+}
+.mascot.b-left .mascot-bubble { right: auto; left: 6px; }
+.mascot.b-left .mascot-bubble::after { right: auto; left: 64px; }
+.mascot.below .mascot-bubble { bottom: auto; top: calc(100% - 10px); transform: translateY(-4px); }
+.mascot.below .mascot-bubble::after { bottom: auto; top: -5px; transform: rotate(225deg); }
+.mascot-bubble b { color: var(--mc); font-weight: 600; letter-spacing: .14em; margin-right: .5em; font-size: 10px; }
+.m-stage:hover ~ .mascot-bubble, .mascot:hover .mascot-bubble, .mascot:focus-within .mascot-bubble, .mascot.talk .mascot-bubble { opacity: 1; transform: none; }
+.mascot.min .mascot-bubble { display: none; }
+
+/* ---------- imagens: so a do estado atual esta visivel; a troca faz fade e um pequeno salto de escala ---------- */
+.m-fig {
+  position: absolute; inset: 0; display: block; transition: transform .28s cubic-bezier(.2, .8, .3, 1);
+  transform: perspective(700px) translate(var(--ex, 0px), var(--ey, 0px)) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+}
+.m-flip { position: absolute; inset: 0; display: block; transform: perspective(700px) rotateY(0deg); transition: transform .55s cubic-bezier(.45, .05, .25, 1); }
+.mascot.left .m-flip { transform: perspective(700px) rotateY(180deg); }          /* volta-se a rodar sobre si, nao salta */
+.m-bob { position: absolute; inset: 0; display: block; transform-origin: 50% 90%; }
+.m-img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; user-select: none; transform-origin: 50% 85%;
+  opacity: 0; transform: scale(.88); filter: blur(2.5px) brightness(1.3);
+  transition: opacity .11s ease-in, transform .18s ease-in, filter .18s ease-in;                         /* a que sai: recolhe depressa */
+}
+.mascot[data-state="sleep"] .m-img[data-s="sleep"], .mascot[data-state="idle"] .m-img[data-s="idle"], .mascot[data-state="scan"] .m-img[data-s="scan"],
+.mascot[data-state="think"] .m-img[data-s="think"], .mascot[data-state="happy"] .m-img[data-s="happy"], .mascot[data-state="sad"] .m-img[data-s="sad"],
+.mascot[data-state="alert"] .m-img[data-s="alert"] {
+  opacity: 1; transform: scale(1); filter: blur(0) brightness(1);
+  transition: opacity .2s ease-out .08s, transform .55s cubic-bezier(.2, .9, .3, 1.4) .08s, filter .22s ease-out .08s;   /* a que entra: espera um instante e materializa-se com um pequeno salto */
+}
+
+/* anel e halo na cor do estado novo: disfarcam a troca de pose */
+.m-pulse { position: absolute; inset: 0; pointer-events: none; }
+.m-pulse::before {
+  content: ""; position: absolute; left: 22%; right: 22%; bottom: 4%; height: 12%; border-radius: 50%; border: 2px solid var(--mc);
+  box-shadow: 0 0 14px var(--mc); opacity: 0;
+}
+.m-pulse::after {
+  content: ""; position: absolute; inset: 8% 12% 6%; border-radius: 50%; opacity: 0;
+  background: radial-gradient(circle at 50% 55%, var(--mc) 0%, transparent 68%);
+}
+.mascot.swap .m-pulse::before { animation: m-ring .75s ease-out; }
+.mascot.swap .m-pulse::after { animation: m-halo .7s ease-out; }
+
+.m-z { position: absolute; top: 8%; right: 14%; pointer-events: none; display: none; font: 600 13px var(--mono); color: var(--muted); }
+.m-z i { position: absolute; right: 0; top: 0; font-style: normal; opacity: 0; }
+.mascot[data-state="sleep"] .m-z { display: block; }
+.mascot[data-state="sleep"] .m-z i { animation: m-z 3.6s ease-in infinite; }
+.mascot[data-state="sleep"] .m-z i:nth-child(2) { animation-delay: 1.2s; }
+.mascot[data-state="sleep"] .m-z i:nth-child(3) { animation-delay: 2.4s; }
+
+/* ---------- movimento por estado ---------- */
+.mascot[data-state="sleep"] .m-bob { animation: m-breathe 4.8s ease-in-out infinite; }
+.mascot[data-state="idle"] .m-bob { animation: m-bob 3.2s ease-in-out infinite; }
+.mascot[data-state="scan"] .m-bob { animation: m-sway 1.9s ease-in-out infinite; }
+.mascot[data-state="think"] .m-bob { animation: m-ponder 3.8s ease-in-out infinite; }
+.mascot[data-state="happy"] .m-bob { animation: m-hop .9s ease-out 2, m-bob 3.2s ease-in-out 1.8s infinite; }
+.mascot[data-state="sad"] .m-bob { animation: m-droop 4.4s ease-in-out infinite; }
+.mascot[data-state="alert"] .m-bob { animation: m-shake .3s linear infinite; }
+.mascot[data-state="alert"] .m-img[data-s="alert"] { animation: m-glow .55s ease-in-out infinite alternate; }
+.mascot.hop .m-bob { animation: m-hop .7s ease-out 1; }
+/* a caminhar: passinhos rapidos (ganha a qualquer estado de fundo) */
+.mascot.walking[data-state] .m-bob { animation: m-walk .44s ease-in-out infinite; }
+.mascot.walking[data-state="scan"] .m-bob { animation-duration: .34s; }
+
+@keyframes m-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.03) translateY(-1px); } }
+@keyframes m-bob { 0%, 100% { transform: perspective(600px) translateY(0) rotateY(-7deg); } 50% { transform: perspective(600px) translateY(-5px) rotateY(7deg); } }
+@keyframes m-sway { 0%, 100% { transform: perspective(600px) translateX(-5px) rotateY(-12deg) rotate(-3deg); } 50% { transform: perspective(600px) translateX(5px) rotateY(12deg) rotate(3deg); } }
+@keyframes m-ponder { 0%, 100% { transform: perspective(600px) rotate(-2deg) rotateY(-9deg); } 50% { transform: perspective(600px) rotate(1.5deg) translateY(-3px) rotateY(6deg); } }
+@keyframes m-ring { 0% { opacity: .9; transform: scale(.35); } 100% { opacity: 0; transform: scale(1.7); } }
+@keyframes m-halo { 0% { opacity: 0; transform: scale(.7); } 35% { opacity: .45; } 100% { opacity: 0; transform: scale(1.15); } }
+@keyframes m-hop { 0%, 100% { transform: translateY(0) rotate(0); } 30% { transform: translateY(-18px) rotate(-5deg); } 60% { transform: translateY(0) rotate(3deg); } 78% { transform: translateY(-6px) rotate(-2deg); } }
+@keyframes m-droop { 0%, 100% { transform: translateY(3px) scale(.985); } 50% { transform: translateY(6px) scale(.97); } }
+@keyframes m-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3px) rotate(-1deg); } 75% { transform: translateX(3px) rotate(1deg); } }
+@keyframes m-glow { from { filter: brightness(1); } to { filter: brightness(1.3) saturate(1.15); } }
+@keyframes m-walk { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-9px) rotate(4deg); } }
+@keyframes m-z { 0% { opacity: 0; transform: translate(0, 6px) scale(.8); } 30% { opacity: 1; } 100% { opacity: 0; transform: translate(10px, -16px) scale(1.2); } }
+
+@media (max-width: 760px) { .mascot { --ms: 112px; } .mascot-bubble { max-width: 190px; } .mascot-bubble::after { right: 44px; } .mascot.b-left .mascot-bubble::after { left: 44px; } }
+@media (prefers-reduced-motion: reduce) { .mascot-bubble, .m-img, .m-fig, .m-flip { transition: none; } .mascot .m-bob, .m-pulse::before, .m-pulse::after { animation: none !important; } .m-flip { transition: none; } }
