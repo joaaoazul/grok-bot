@@ -80,7 +80,7 @@ tr.buy td:last-child { color: var(--good); } tr.sell td:last-child { color: var(
 .wrow .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wrow .nm small { display: block; color: var(--muted); font-size: 11px; }
 .wrow .vl { text-align: right; font-variant-numeric: tabular-nums; }
-.detail { padding: 10px 12px; font-size: 12px; max-height: 420px; overflow: auto; }
+.detail { padding: 10px 12px; font-size: 12px; max-height: 560px; overflow: auto; }
 .detail dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0 0 8px; }
 .detail dt { color: var(--muted); } .detail dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .detail p { margin: 6px 0; } .detail h4 { margin: 10px 0 4px; font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .04em; }
@@ -93,6 +93,20 @@ tr.buy td:last-child { color: var(--good); } tr.sell td:last-child { color: var(
 .sect { padding: 10px 10px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .disclaimer { padding: 6px 16px 18px; font-size: 11px; }
 
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--text); }
+button.sellbtn { padding: 2px 9px; font-size: 11px; font-weight: 600; background: transparent; color: var(--bad); border-color: var(--bad); }
+button.sellbtn:hover { background: var(--bad); color: #fff; }
+button.sellbtn:disabled { opacity: .5; cursor: wait; }
+button.sellbig { width: 100%; margin-top: 8px; padding: 7px; background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 9px 16px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 10; max-width: 90vw; }
+.toast.show { opacity: 1; } .toast.bad { border-color: var(--bad); color: #ffb3b1; }
+.tfbar { display: flex; gap: 2px; margin-left: auto; }
+.tfbar button { padding: 2px 9px; font-size: 11px; background: transparent; color: var(--muted); }
+.tfbar button.on { color: var(--text); background: var(--panel2); border-color: var(--accent); }
+.clinks { margin-left: 0 !important; }
+.wrow .vl .sellbtn { margin-top: 3px; }
+
 @media (max-width: 1100px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
   .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -101,3 +115,17 @@ tr.buy td:last-child { color: var(--good); } tr.sell td:last-child { color: var(
   .bar { grid-template-columns: 130px 1fr 40px; }
   #search { width: 120px; }
 }
+
+/* ---------- fluidez ---------- */
+html { scroll-behavior: smooth; }
+button, select, input, .tab, .wrow, tr.row td, tr.click td, th.sortable { transition: background-color .15s ease, border-color .15s ease, color .15s ease, opacity .15s ease, box-shadow .15s ease; }
+button:active:not(:disabled) { transform: scale(.97); }
+.flash-up { animation: flashUp .7s ease-out; }
+.flash-down { animation: flashDown .7s ease-out; }
+@keyframes flashUp { from { background-color: rgba(38,166,154,.4); } to { background-color: transparent; } }
+@keyframes flashDown { from { background-color: rgba(239,83,80,.4); } to { background-color: transparent; } }
+.fade { animation: fadeIn .2s ease-out; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+#chart, #priceChart, #equityChart, #eqChart { transition: opacity .25s ease; }
+.loading { opacity: .35; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }
