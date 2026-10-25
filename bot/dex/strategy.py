@@ -57,6 +57,9 @@ class DexBot:
             self.sim = DexPaper()
             self.networks = config.DEX_NETWORKS
         self.enabled = False
+        self.cycles = 0
+        self.activity = {"kind": "idle", "what": ""}   # idle | scan | think
+        self._scanning = False
         self.log = deque(maxlen=150)
         self.funnel = {}
         self.last_scan = None
@@ -135,6 +138,7 @@ class DexBot:
             except Exception as exc:
                 self._say(f"Erro na procura: {exc}", "error")
             self.last_scan = datetime.now().strftime("%H:%M:%S")
+            self.cycles += 1
             self._stop.wait(config.DEX_SCAN_SEC)
 
     def _guard_loop(self):

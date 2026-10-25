@@ -487,6 +487,8 @@ let autoOn = false;
 async function loadAuto() {
   const a = await api("/api/auto");
   autoOn = a.enabled;
+  $("autoDot").className = "dot" + (a.enabled && !a.halted ? " on" : "");
+  $("autoDotText").textContent = a.halted ? "pausado" : a.enabled ? "auto ativo" : "auto parado";
   const b = $("autoToggle");
   b.textContent = a.enabled ? "Desligar modo automatico" : "Ligar modo automatico";
   b.className = a.enabled ? "on" : "";

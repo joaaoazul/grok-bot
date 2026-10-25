@@ -8,6 +8,7 @@ from bot.broker import get_broker
 from bot.dex.strategy import DexBot
 
 app = Flask(__name__)
+_STARTED = time.time()
 broker = get_broker()
 auto = AutoTrader(broker)
 dex = DexBot()  # memecoins em DEX: so simulacao
@@ -27,6 +28,12 @@ def index():
     return render_template("index.html", model=config.GROK_MODEL, max_order=config.MAX_ORDER_USDT,
                            interval=config.AUTO_INTERVAL_SEC, stop_loss=config.STOP_LOSS_PCT,
                            take_profit=config.TAKE_PROFIT_PCT, max_loss=config.MAX_DAILY_LOSS_USDT)
+
+
+@app.get("/api/sys")
+def sys_info():
+    """Para a barra de estado das paginas: ha quanto tempo corre, processo e ciclos de cada bot."""
+    return jsonify(uptime=int(time.time() - _STARTED), pid=os.getpid(), dex_cycles=dex.cycles, auto_cycles=auto.cycles)
 
 
 @app.get("/api/symbols")

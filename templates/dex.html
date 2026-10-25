@@ -4,15 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grok Trader: DEX</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="{{ url_for('static', filename='dex.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
   <header class="top">
-    <div class="brand">Grok Trader <span>DEX</span></div>
+    <div class="brand">Grok Trader <span>/ DEX</span></div>
     <span class="tag" id="modeTag">-</span>
     <span class="status"><i class="dot" id="statusDot"></i><span id="statusText">a ligar...</span></span>
     <span class="spacer"></span>
+    <div class="hud" id="hud" data-bot="dex"><span>UPTIME<b id="hUp">--:--:--</b></span><span>CICLO<b id="hCy">#-</b></span><span>PID<b id="hPid">-</b></span></div>
     <span class="wallet" id="wallet" hidden></span>
     <button id="toggle" type="button">Ligar</button>
     <button id="panic" type="button" class="danger" hidden>Panico: vender tudo</button>
@@ -72,12 +77,14 @@
       <div class="panel"><h3>Em carteira</h3><div id="watchPos" class="watch"></div></div>
       <div class="panel"><h3>Detalhe</h3><div id="detail" class="detail"></div></div>
       <div class="panel"><h3>Valor da conta (USD)</h3><div id="eqChart"></div><p class="muted" id="eqEmpty" hidden>O grafico aparece depois de dois registos (um por minuto).</p></div>
+      <div class="panel"><h3>Registo de atividade</h3><div id="watchLog" class="termlog"></div></div>
       <div class="panel"><h3>Analisadas agora</h3><div id="watchAn" class="watch"></div></div>
     </aside>
   </main>
 
   <p class="muted disclaimer" id="disclaimer"></p>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="{{ url_for('static', filename='hud.js') }}"></script>
   <script src="{{ url_for('static', filename='dex.js') }}"></script>
 </body>
 </html>

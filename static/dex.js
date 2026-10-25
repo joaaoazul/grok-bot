@@ -219,6 +219,7 @@ function renderLists() {
       <div class="nm"><b>${esc(p.name)}</b><small>${esc(p.network)} | ${dur(p.held_min)} | alvo +${num(p.target_pct, 0)}%</small></div>
       <div class="vl"><b class="${cls(p.pnl_pct)}">${signed(p.pnl_pct, 1)}%</b><small class="muted"><br>${num(p.value)} USD</small><br>${sellBtn(p.id)}</div></div>`).join("")
     : `<div class="empty">Sem posicoes abertas.</div>`);
+  setHtml($("watchLog"), S.log.length ? S.log.slice(0, 16).map((l) => `<div class="${esc(l.kind)}"><span class="t">[${esc(l.t)}]</span>${esc(l.msg)}</div>`).join("") : `<div class="info">Sem atividade ainda.</div>`);
   setHtml($("watchAn"), S.analysed.length ? S.analysed.filter((a) => !F.net || a.network === F.net).slice(0, 14).map((a) => `<div class="wrow ${sel && sel.id === a.id ? "sel" : ""}" data-id="${esc(a.id)}">
       <div class="nm"><b>${esc(a.name)}</b><small>${esc(a.t)} | ${esc(a.network)} | ${dur(a.age_min)}</small></div>
       <div class="vl">${badge(a.decision)}<small class="muted"><br>${a.confidence != null ? Math.round(a.confidence * 100) + "%" : ""}</small></div></div>`).join("")

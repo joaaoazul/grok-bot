@@ -4,16 +4,22 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grok Trader</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='theme.css') }}">
   <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
   <header>
-    <h1>Grok Trader</h1>
+    <h1>Grok Trader <span class="slash">/ BINANCE</span></h1>
     <span class="tag" id="mode">...</span>
     <span class="tag ws-off" id="liveTag" title="Precos em tempo real, direto da Binance">○ a ligar</span>
     <span class="muted">{{ model }} · max {{ max_order }} USDT por ordem</span>
-    <a class="navlink" href="/dex">Memecoins (simulacao) →</a>
+    <span class="status"><i class="dot" id="autoDot"></i><span id="autoDotText">auto parado</span></span>
+    <div class="hud" id="hud" data-bot="auto"><span>UPTIME<b id="hUp">--:--:--</b></span><span>CICLO<b id="hCy">#-</b></span><span>PID<b id="hPid">-</b></span></div>
+    <a class="navlink" href="/dex">DEX</a>
   </header>
 
   <div class="tiles">
@@ -104,6 +110,7 @@
 
   <p class="muted disclaimer">Nao e aconselhamento financeiro. As sugestoes do Grok podem estar erradas e podes perder dinheiro.</p>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="{{ url_for('static', filename='hud.js') }}"></script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
