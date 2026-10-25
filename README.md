@@ -67,6 +67,12 @@ O Grok recebe os sinais das janelas de 5 min e de 1 h do DexScreener: volume con
 
 Cada compra tem o seu stop: o Grok propõe e o código limita-o pela convicção (confiança, tamanho da ordem e força do volume). Convicção baixa fica entre 5% e 10%, e só a máxima chega a 15%. Os limites estão no `.env.example` (`DEX_STOP_*`). **Muda o comportamento de compra e de saída**, por isso convém testar em `paper` ou em dry-run antes de usar dinheiro real.
 
+## Reserva para taxas
+
+O bot só usa **95% da carteira** (`WALLET_USE_PCT`, na Binance e na DEX). Os outros 5% ficam livres para taxas da rede e outros custos. Na DEX conta o orçamento (`DEX_BUDGET_EUR`) e, em modo real, o saldo de SOL da carteira: se a carteira tiver menos do que o orçamento, vale o menor. Se não conseguir ler o saldo, não compra.
+
+Isto afeta o tamanho das ordens: com um orçamento de 5€ só se podem gastar 4,75€, por isso `DEX_MIN_SIZE_EUR` tem de ser 4,75 ou menos, senão o bot nunca compra (e avisa no registo).
+
 ## Segurança
 
 - O `.env` e a pasta `data/` não vão para o git. Não os partilhes.
