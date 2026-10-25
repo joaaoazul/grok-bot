@@ -206,6 +206,11 @@ class DexBot:
                 return 0.0, why
         return max(self.sim.s["cash"] - keep * self.sim.equity(), 0.0), None
 
+    @staticmethod
+    def _target(pos):
+        """Alvo de lucro da posicao, nunca acima do teto atual: tambem encolhe os alvos de posicoes abertas antes de o teto baixar."""
+        return min(pos.get("target_pct") or config.DEX_TP_DEFAULT_PCT, config.DEX_TP_MAX_PCT)
+
     def _today(self):
         day = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
         rows = [r for r in self.sim.s["closed"] if r["ts"] >= day]
@@ -467,7 +472,7 @@ class DexBot:
         tx, vol, chg = f.get("tx") or {}, f.get("vol") or {}, f.get("chg") or {}
         ctx = {"posicao": {"nome": pos["name"], "resultado_liquido_pct": round(pnl, 1), "maximo_pct": round(pos["peak_pnl_pct"], 1),
                            "queda_desde_maximo_pct": round(max(0.0, pos["peak_pnl_pct"] - pnl), 1),
-                           "minutos_em_carteira": round((time.time() - pos["ts"]) / 60), "alvo_automatico_pct": pos.get("target_pct")},
+                           "minutos_em_carteira": round((time.time() - pos["ts"]) / 60), "alvo_automatico_pct": self._target(pos)},
                "mercado": {"var_5m_pct": chg.get("m5"), "var_1h_pct": chg.get("h1"), "var_6h_pct": chg.get("h6"),
                            "compras_vendas_5m": [(tx.get("m5") or {}).get("buyers"), (tx.get("m5") or {}).get("sellers")],
                            "compras_vendas_1h": [(tx.get("h1") or {}).get("buyers"), (tx.get("h1") or {}).get("sellers")],
@@ -529,7 +534,7 @@ class DexBot:
         stop = pos.get("stop_pct") or config.DEX_STOP_PCT
         if pnl <= -stop:
             return self._exit(pos["id"], "stop-loss", f"{pnl:+.1f}% (stop -{stop:.1f}%)")
-        target = pos.get("target_pct") or config.DEX_TP_DEFAULT_PCT
+        target = self._target(pos)
         if pnl >= target:
             return self._exit(pos["id"], "take-profit", f"{pnl:+.0f}% (alvo +{target:.0f}%)")
         # O trailing arma a meio do caminho para o alvo, para um alvo de 30% nao ficar sem protecao de lucro
@@ -586,11 +591,11 @@ class DexBot:
                               "entry_price": p["entry_price"], "price": p["last_price"], "sig": p.get("sig"), "reason": p.get("reason"),
                               "stop_price": self.sim.price_for_pnl(p, -(p.get("stop_pct") or config.DEX_STOP_PCT)),
                               "stop_pct": p.get("stop_pct") or config.DEX_STOP_PCT, "conviction": p.get("conviction"),
-                              "target_price": self.sim.price_for_pnl(p, p.get("target_pct") or config.DEX_TP_DEFAULT_PCT),
+                              "target_price": self.sim.price_for_pnl(p, self._target(p)),
                               "cost": round(p["cost"], 2), "value": round(nv, 2),
                               "pnl_pct": round(self.sim.pnl_pct(p), 1), "peak_pct": round(p["peak_pnl_pct"], 1),
                               "held_min": round((time.time() - p["ts"]) / 60), "liq": p["last_liq"], "confidence": p["confidence"],
-                              "target_pct": p.get("target_pct"),
+                              "target_pct": self._target(p),
                               "tokens": p["tokens"], "entry_ts": p["ts"], "entry_liq": p.get("entry_liq"), "real": bool(p.get("real")),
                               "buy_cost_usd": round(p["cost"] - p["tokens"] * p["entry_price"], 4),      # comissao + impacto pagos a comprar
                               "gross": round(p["tokens"] * p["last_price"], 4), "exit_cost": round(p["tokens"] * p["last_price"] - nv, 4)})  # o que custaria sair agora
