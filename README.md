@@ -49,7 +49,7 @@ Se o browser der **403** ou "sem autorização" em `localhost:5000`, a porta 500
 2. Exporta a chave privada dessa conta e põe-na em `DEX_WALLET_KEY` no `.env`. Nunca a partilhes nem a coloques no git.
 3. Envia uma quantia pequena de SOL para essa conta (por exemplo 0,2 a 0,3).
 4. Começa em teste: `DEX_MODE=live`, `DEX_LIVE_DRY_RUN=true`, `DEX_LIVE_ARMED=false`. O bot cota e simula as transações, mas não envia nada.
-5. Quando a simulação passar, `DEX_LIVE_DRY_RUN=false` e `DEX_LIVE_ARMED=true` passam a usar dinheiro de verdade. Define `DEX_BUDGET_EUR`, `DEX_MIN_SIZE_EUR` e `DEX_MAX_SIZE_EUR` pequenos no início.
+5. Quando a simulação passar, `DEX_LIVE_DRY_RUN=false` e `DEX_LIVE_ARMED=true` passam a usar dinheiro de verdade. Define `DEX_MIN_SIZE_EUR` e `DEX_MAX_SIZE_EUR` pequenos no início (o orçamento é 95% do saldo da carteira).
 
 O botão "Pânico" da página `/dex` vende tudo e para. Um ficheiro `data/KILL` bloqueia novas compras.
 
@@ -67,11 +67,13 @@ O Grok recebe os sinais das janelas de 5 min e de 1 h do DexScreener: volume con
 
 Cada compra tem o seu stop: o Grok propõe e o código limita-o pela convicção (confiança, tamanho da ordem e força do volume). Convicção baixa fica entre 5% e 10%, e só a máxima chega a 15%. Os limites estão no `.env.example` (`DEX_STOP_*`). **Muda o comportamento de compra e de saída**, por isso convém testar em `paper` ou em dry-run antes de usar dinheiro real.
 
+O alvo de lucro de cada compra também é proposto pelo Grok e limitado pelo código a **entre 10% e 20%** (`DEX_TP_MIN_PCT` e `DEX_TP_MAX_PCT`; por defeito 15% se o Grok não disser). O teto aplica-se também às posições que já estavam abertas com um alvo maior. Com alvos curtos e stops até 15%, cada trade ganha menos do que arrisca no pior caso: convém acompanhar a taxa de acerto.
+
 ## Reserva para taxas
 
-O bot só usa **95% da carteira** (`WALLET_USE_PCT`, na Binance e na DEX). Os outros 5% ficam livres para taxas da rede e outros custos. Na DEX conta o orçamento (`DEX_BUDGET_EUR`) e, em modo real, o saldo de SOL da carteira: se a carteira tiver menos do que o orçamento, vale o menor. Se não conseguir ler o saldo, não compra.
+O bot só usa **95% da carteira** (`WALLET_USE_PCT`, na Binance e na DEX). Os outros 5% ficam livres para taxas da rede e outros custos. Na DEX o **orçamento é 95% do saldo da carteira** (saldo de SOL mais o valor das posições abertas), e acompanha o saldo real: já não há um orçamento fixo (`DEX_BUDGET_EUR` foi retirado). Em modo real a caixa é lida da carteira a cada ciclo, já sem as taxas pagas. Se não conseguir ler o saldo, não compra. O que continua a limitar o risco é o tamanho de cada compra (`DEX_MAX_SIZE_EUR`), o número máximo de posições (`DEX_MAX_POSITIONS`) e o limite de perda diária (`DEX_DAILY_LOSS_EUR`).
 
-Isto afeta o tamanho das ordens: com um orçamento de 5€ só se podem gastar 4,75€, por isso `DEX_MIN_SIZE_EUR` tem de ser 4,75 ou menos, senão o bot nunca compra (e avisa no registo).
+Isto afeta o tamanho das ordens: com uma carteira de 5€ só se podem gastar 4,75€, por isso `DEX_MIN_SIZE_EUR` tem de ser 4,75 ou menos, senão o bot nunca compra (e avisa no registo).
 
 ## Segurança
 

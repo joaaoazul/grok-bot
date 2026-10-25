@@ -437,7 +437,7 @@ function render(s) {
   b.textContent = !live ? "Simulacao com dinheiro virtual: nao ha carteira real nem chaves. Impacto no preco e comissoes sao modelados."
     : s.dry_run ? "Modo live em teste: cota e simula swaps reais, mas nao envia nada."
     : "DINHEIRO REAL: o bot compra e vende sozinho com a carteira indicada. Valores em USD.";
-  $("disclaimer").textContent = `Regras: ordens de ${num(s.rules.size_min, 0)} a ${num(s.rules.size_max, 0)} EUR (1 EUR = ${num(s.rules.eurusd, 4)} USD), alvo entre +${s.rules.tp_min}% e +${s.rules.tp_max}%, stop-loss de ${s.rules.stop_min}% a ${s.rules.stop_max}% (ajustado a cada compra), comissao ${s.rules.fee}% por lado, maximo ${s.rules.max_hold_h} h por posicao, usa no maximo ${s.rules.wallet_use_pct}% da carteira (o resto fica para taxas), procura a cada ${s.scan_sec} s. Resultados simulados nao garantem resultados reais.`;
+  $("disclaimer").textContent = `Regras: ordens de ${num(s.rules.size_min, 0)} a ${num(s.rules.size_max, 0)} EUR (1 EUR = ${num(s.rules.eurusd, 4)} USD), alvo entre +${s.rules.tp_min}% e +${s.rules.tp_max}%, stop-loss de ${s.rules.stop_min}% a ${s.rules.stop_max}% (ajustado a cada compra), comissao ${s.rules.fee}% por lado, maximo ${s.rules.max_hold_h} h por posicao, o orcamento e ${s.rules.wallet_use_pct}% da carteira (agora ${num(s.rules.budget_usd)} USD; o resto fica para taxas), procura a cada ${s.scan_sec} s. Resultados simulados nao garantem resultados reais.`;
 
   const pnlPct = (s.equity / s.start - 1) * 100;
   $("tEquity").textContent = `${num(s.equity)} USD`;

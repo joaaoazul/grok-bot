@@ -10,7 +10,7 @@ from datetime import datetime
 
 from .. import analyst, config
 from . import data, fx, signals
-from .sim import DexPaper, net_value
+from .sim import DexPaper, net_value, _lock as _sim_lock
 
 
 # Saidas por perigo: vende ja, com slippage mais alto
@@ -46,12 +46,7 @@ class DexBot:
         if config.DEX_MODE == "live":
             from .live import LiveSolana
             self.live = LiveSolana()   # levanta erro se a chave falta ou e invalida: nao arranca a meio gas
-            budget = config.DEX_BUDGET_EUR * fx.eur_usd()
-            self.sim = DexPaper("dex_live.json", budget)
-            s = self.sim.s
-            if not s["positions"] and not s["closed"] and abs(s["start"] - budget) > 0.01:   # orcamento mudou antes de haver operacoes
-                s.update(start=budget, cash=budget)
-                self.sim._save()
+            self.sim = DexPaper("dex_live.json", 0.01)   # a caixa e o saldo real da carteira: sincroniza-se a cada ciclo (_sync_wallet)
             self.networks = ["solana"]
         else:
             self.sim = DexPaper()
@@ -77,6 +72,8 @@ class DexBot:
         self._fresh = {}     # id -> ultimos dados da pool
         self._reviewed = {}  # id -> ultima reavaliacao de saida pelo Grok
         self._reviewing = set()
+        if self.live:
+            self._sync_wallet()   # tenta ja; se o RPC falhar, fica a espera do primeiro ciclo
         self._exit_lock = threading.RLock()   # evita vender a mesma posicao duas vezes (vigilante + botao)
 
     def _note(self, p, decision, reason="", **extra):
@@ -125,6 +122,9 @@ class DexBot:
         self._stop.clear()
         if self.live:
             self._reconcile()
+            if os.getenv("DEX_BUDGET_EUR"):
+                self._say("DEX_BUDGET_EUR ja nao se usa: o orcamento e agora "
+                          f"{config.WALLET_USE_PCT:g}% do saldo da carteira. Podes apagar essa linha do .env.", "alert")
         threading.Thread(target=self._scan_loop, daemon=True).start()
         threading.Thread(target=self._guard_loop, daemon=True).start()
         if self.live:
@@ -181,19 +181,41 @@ class DexBot:
             return f"perda do dia de {lost / fx.eur_usd():.2f} EUR atingiu o limite"
         return None
 
+    def _sync_wallet(self):
+        """Modo real: a caixa e o saldo de SOL da carteira, ja sem as taxas pagas. Sem operacoes ainda, o capital inicial acompanha
+        o saldo. Devolve (saldo_em_usd, None) ou (None, motivo)."""
+        try:
+            sol_usd = self.live.wallet_usd()
+        except Exception as exc:
+            return None, f"nao consegui ler o saldo da carteira ({exc})"
+        with _sim_lock:
+            s = self.sim.s
+            s["cash"] = sol_usd
+            if not s["positions"] and not s["closed"]:
+                s["start"] = sol_usd
+            elif not s.get("wallet_budget"):
+                # Migracao unica de um estado antigo (orcamento fixo): o capital inicial passa a ser o que a carteira tem agora mais o custo
+                # das posicoes abertas, menos o que ja se ganhou ou perdeu. Assim o "resultado total" nao conta a diferenca como lucro.
+                realized = sum(r.get("pnl_usd", 0.0) for r in s["closed"])
+                s["start"] = sol_usd + sum(p["cost"] for p in s["positions"].values()) - realized
+            s["wallet_budget"] = True
+            self.sim._save()
+        return sol_usd, None
+
     def _room(self):
-        """Dolares que ainda se podem gastar numa compra nova, deixando livre (100 - WALLET_USE_PCT)% da carteira para taxas da rede
-        e outros custos. Em modo real conta tambem o saldo de SOL da carteira. Devolve (dolares, motivo_se_nao_conseguiu_ler)."""
+        """Dolares que ainda se podem gastar numa compra nova. O orcamento e WALLET_USE_PCT% da carteira (saldo + posicoes abertas):
+        os outros (100 - WALLET_USE_PCT)% ficam livres para taxas da rede e outros custos. Devolve (dolares, motivo_se_nao_conseguiu_ler)."""
         keep = 1 - config.WALLET_USE_PCT / 100
-        equity = self.sim.equity()
-        room = self.sim.s["cash"] - keep * equity
         if self.live:
-            try:
-                sol_usd = self.live.wallet_usd()
-            except Exception as exc:
-                return 0.0, f"nao consegui ler o saldo da carteira ({exc})"
-            room = min(room, sol_usd - keep * (sol_usd + equity - self.sim.s["cash"]))
-        return max(room, 0.0), None
+            sol_usd, why = self._sync_wallet()
+            if why:
+                return 0.0, why
+        return max(self.sim.s["cash"] - keep * self.sim.equity(), 0.0), None
+
+    @staticmethod
+    def _target(pos):
+        """Alvo de lucro da posicao, nunca acima do teto atual: tambem encolhe os alvos de posicoes abertas antes de o teto baixar."""
+        return min(pos.get("target_pct") or config.DEX_TP_DEFAULT_PCT, config.DEX_TP_MAX_PCT)
 
     def _today(self):
         day = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
@@ -385,7 +407,7 @@ class DexBot:
             return
         target = min(max(_num(proposal.get("target_pct")) or config.DEX_TP_DEFAULT_PCT, config.DEX_TP_MIN_PCT), config.DEX_TP_MAX_PCT)
         # Stop proprio desta compra: o Grok propoe, a conviccao (confianca, tamanho, volume de compra) limita
-        hi_eur = min(config.DEX_MAX_SIZE_EUR, config.DEX_BUDGET_EUR) if self.live else config.DEX_MAX_SIZE_EUR
+        hi_eur = min(config.DEX_MAX_SIZE_EUR, room / rate)          # o intervalo de tamanhos e o que a carteira deixa gastar
         conv = signals.conviction(conf, size / rate, config.DEX_MIN_SIZE_EUR, hi_eur, sig["forca_compra"])
         stop = signals.stop_pct(_num(proposal.get("stop_pct")), conv)
         feats = {**feat["pool"], "seguranca": info, "velas_1m": candle_summary, "sinais": sig}
@@ -456,7 +478,7 @@ class DexBot:
         tx, vol, chg = f.get("tx") or {}, f.get("vol") or {}, f.get("chg") or {}
         ctx = {"posicao": {"nome": pos["name"], "resultado_liquido_pct": round(pnl, 1), "maximo_pct": round(pos["peak_pnl_pct"], 1),
                            "queda_desde_maximo_pct": round(max(0.0, pos["peak_pnl_pct"] - pnl), 1),
-                           "minutos_em_carteira": round((time.time() - pos["ts"]) / 60), "alvo_automatico_pct": pos.get("target_pct")},
+                           "minutos_em_carteira": round((time.time() - pos["ts"]) / 60), "alvo_automatico_pct": self._target(pos)},
                "mercado": {"var_5m_pct": chg.get("m5"), "var_1h_pct": chg.get("h1"), "var_6h_pct": chg.get("h6"),
                            "compras_vendas_5m": [(tx.get("m5") or {}).get("buyers"), (tx.get("m5") or {}).get("sellers")],
                            "compras_vendas_1h": [(tx.get("h1") or {}).get("buyers"), (tx.get("h1") or {}).get("sellers")],
@@ -518,7 +540,7 @@ class DexBot:
         stop = pos.get("stop_pct") or config.DEX_STOP_PCT
         if pnl <= -stop:
             return self._exit(pos["id"], "stop-loss", f"{pnl:+.1f}% (stop -{stop:.1f}%)")
-        target = pos.get("target_pct") or config.DEX_TP_DEFAULT_PCT
+        target = self._target(pos)
         if pnl >= target:
             return self._exit(pos["id"], "take-profit", f"{pnl:+.0f}% (alvo +{target:.0f}%)")
         # O trailing arma a meio do caminho para o alvo, para um alvo de 30% nao ficar sem protecao de lucro
@@ -575,11 +597,11 @@ class DexBot:
                               "entry_price": p["entry_price"], "price": p["last_price"], "sig": p.get("sig"), "reason": p.get("reason"),
                               "stop_price": self.sim.price_for_pnl(p, -(p.get("stop_pct") or config.DEX_STOP_PCT)),
                               "stop_pct": p.get("stop_pct") or config.DEX_STOP_PCT, "conviction": p.get("conviction"),
-                              "target_price": self.sim.price_for_pnl(p, p.get("target_pct") or config.DEX_TP_DEFAULT_PCT),
+                              "target_price": self.sim.price_for_pnl(p, self._target(p)),
                               "cost": round(p["cost"], 2), "value": round(nv, 2),
                               "pnl_pct": round(self.sim.pnl_pct(p), 1), "peak_pct": round(p["peak_pnl_pct"], 1),
                               "held_min": round((time.time() - p["ts"]) / 60), "liq": p["last_liq"], "confidence": p["confidence"],
-                              "target_pct": p.get("target_pct"),
+                              "target_pct": self._target(p),
                               "tokens": p["tokens"], "entry_ts": p["ts"], "entry_liq": p.get("entry_liq"), "real": bool(p.get("real")),
                               "buy_cost_usd": round(p["cost"] - p["tokens"] * p["entry_price"], 4),      # comissao + impacto pagos a comprar
                               "gross": round(p["tokens"] * p["last_price"], 4), "exit_cost": round(p["tokens"] * p["last_price"] - nv, 4)})  # o que custaria sair agora
@@ -592,5 +614,5 @@ class DexBot:
                 "today": self._today(), "scan_sec": config.DEX_SCAN_SEC,
                 "mode": "live" if self.live else "paper", "dry_run": bool(self.live and self.live.dry),
                 "rules": {"size_min": config.DEX_MIN_SIZE_EUR, "size_max": config.DEX_MAX_SIZE_EUR, "eurusd": round(fx.eur_usd(), 4),
-                          "tp_min": config.DEX_TP_MIN_PCT, "tp_max": config.DEX_TP_MAX_PCT, "wallet_use_pct": config.WALLET_USE_PCT, "stop": config.DEX_STOP_PCT, "stop_min": config.DEX_STOP_MIN_PCT, "stop_max": config.DEX_STOP_MAX_PCT, "fee": config.DEX_FEE_PCT,
+                          "tp_min": config.DEX_TP_MIN_PCT, "tp_max": config.DEX_TP_MAX_PCT, "wallet_use_pct": config.WALLET_USE_PCT, "budget_usd": round(config.WALLET_USE_PCT / 100 * eq, 2), "stop": config.DEX_STOP_PCT, "stop_min": config.DEX_STOP_MIN_PCT, "stop_max": config.DEX_STOP_MAX_PCT, "fee": config.DEX_FEE_PCT,
                           "min_liq": config.DEX_MIN_LIQ_USD, "max_hold_h": config.DEX_MAX_HOLD_H, "networks": self.networks}}

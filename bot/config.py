@@ -79,12 +79,12 @@ DEX_STOP_MAX_PCT = float(os.getenv("DEX_STOP_MAX_PCT", "15"))
 # Sinais de volume (janelas de 5 min e 1 h): acima destas subidas o preco conta como "esticado" e o bot nao persegue
 DEX_SURGE_MAX_M5_PCT = float(os.getenv("DEX_SURGE_MAX_M5_PCT", "20"))
 DEX_SURGE_MAX_H1_PCT = float(os.getenv("DEX_SURGE_MAX_H1_PCT", "150"))
-# Alvo de lucro por operacao: o Grok propoe, o codigo limita a [MIN, MAX] %. Nunca abaixo de 30%.
+# Alvo de lucro por operacao: o Grok propoe, o codigo limita a [MIN, MAX] % (por defeito entre 10% e 20%).
 DEX_TP_MIN_PCT = float(os.getenv("DEX_TP_MIN_PCT", "10"))           # lucro minimo antes de o bot poder realizar
 DEX_REVIEW_FROM_PCT = float(os.getenv("DEX_REVIEW_FROM_PCT", "10"))  # a partir deste lucro liquido o Grok reavalia a saida
 DEX_REVIEW_SEC = int(os.getenv("DEX_REVIEW_SEC", "60"))              # de quanto em quanto tempo
-DEX_TP_MAX_PCT = float(os.getenv("DEX_TP_MAX_PCT", "300"))
-DEX_TP_DEFAULT_PCT = float(os.getenv("DEX_TP_DEFAULT_PCT", "60"))   # se o Grok nao disser
+DEX_TP_MAX_PCT = max(DEX_TP_MIN_PCT, float(os.getenv("DEX_TP_MAX_PCT", "20")))   # teto do alvo; aplica-se tambem as posicoes ja abertas
+DEX_TP_DEFAULT_PCT = min(DEX_TP_MAX_PCT, max(DEX_TP_MIN_PCT, float(os.getenv("DEX_TP_DEFAULT_PCT", "15"))))   # se o Grok nao disser
 DEX_TRAIL_ACTIVATE_PCT = float(os.getenv("DEX_TRAIL_ACTIVATE_PCT", "40"))
 DEX_TRAIL_PCT = float(os.getenv("DEX_TRAIL_PCT", "20"))
 DEX_MAX_HOLD_H = float(os.getenv("DEX_MAX_HOLD_H", "6"))
@@ -117,7 +117,6 @@ DEX_LIVE_DRY_RUN = os.getenv("DEX_LIVE_DRY_RUN", "true").lower() == "true"  # tr
 DEX_RPC_URL = os.getenv("DEX_RPC_URL", "https://api.mainnet-beta.solana.com")
 JUPITER_URL = os.getenv("JUPITER_URL", "https://lite-api.jup.ag/swap/v1")
 JUPITER_API_KEY = os.getenv("JUPITER_API_KEY")
-DEX_BUDGET_EUR = float(os.getenv("DEX_BUDGET_EUR", "20"))              # maximo investido ao mesmo tempo
 DEX_DAILY_LOSS_EUR = float(os.getenv("DEX_DAILY_LOSS_EUR", "10"))       # perda diaria que bloqueia novas compras
 DEX_SOL_RESERVE = float(os.getenv("DEX_SOL_RESERVE", "0.02"))           # SOL que nunca se gasta (taxas e rendas)
 DEX_BUY_SLIPPAGE_BPS = int(os.getenv("DEX_BUY_SLIPPAGE_BPS", "500"))
