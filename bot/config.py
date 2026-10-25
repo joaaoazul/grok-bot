@@ -117,7 +117,6 @@ DEX_LIVE_DRY_RUN = os.getenv("DEX_LIVE_DRY_RUN", "true").lower() == "true"  # tr
 DEX_RPC_URL = os.getenv("DEX_RPC_URL", "https://api.mainnet-beta.solana.com")
 JUPITER_URL = os.getenv("JUPITER_URL", "https://lite-api.jup.ag/swap/v1")
 JUPITER_API_KEY = os.getenv("JUPITER_API_KEY")
-DEX_BUDGET_EUR = float(os.getenv("DEX_BUDGET_EUR", "20"))              # maximo investido ao mesmo tempo
 DEX_DAILY_LOSS_EUR = float(os.getenv("DEX_DAILY_LOSS_EUR", "10"))       # perda diaria que bloqueia novas compras
 DEX_SOL_RESERVE = float(os.getenv("DEX_SOL_RESERVE", "0.02"))           # SOL que nunca se gasta (taxas e rendas)
 DEX_BUY_SLIPPAGE_BPS = int(os.getenv("DEX_BUY_SLIPPAGE_BPS", "500"))
