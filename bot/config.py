@@ -68,7 +68,15 @@ DEX_MAX_DEV_PCT = float(_p("DEX_MAX_DEV_PCT", "25", "40"))        # corte duro; 
 DEX_MAX_RUGCHECK_SCORE = float(_p("DEX_MAX_RUGCHECK_SCORE", "60", "75"))   # RugCheck: 0 = limpo, 100 = pessimo
 DEX_MAX_BUY_SELL_RATIO = float(_p("DEX_MAX_BUY_SELL_RATIO", "25", "40"))   # compras por cada venda na ultima hora: acima disto parece que ninguem consegue vender
 DEX_MAX_TOP10_PCT = float(_p("DEX_MAX_TOP10_PCT", "60", "80"))
-DEX_STOP_PCT = float(os.getenv("DEX_STOP_PCT", "25"))
+DEX_STOP_PCT = float(os.getenv("DEX_STOP_PCT", "25"))            # so para posicoes antigas, sem stop proprio
+# Stop de cada compra: o Grok propoe, o codigo limita pela conviccao (confianca, tamanho e forca do volume de compra).
+# Conviccao baixa: entre MIN e SMALL_MAX. So a conviccao maxima chega ao teto MAX.
+DEX_STOP_MIN_PCT = float(os.getenv("DEX_STOP_MIN_PCT", "5"))
+DEX_STOP_SMALL_MAX_PCT = float(os.getenv("DEX_STOP_SMALL_MAX_PCT", "10"))
+DEX_STOP_MAX_PCT = float(os.getenv("DEX_STOP_MAX_PCT", "15"))
+# Sinais de volume (janelas de 5 min e 1 h): acima destas subidas o preco conta como "esticado" e o bot nao persegue
+DEX_SURGE_MAX_M5_PCT = float(os.getenv("DEX_SURGE_MAX_M5_PCT", "20"))
+DEX_SURGE_MAX_H1_PCT = float(os.getenv("DEX_SURGE_MAX_H1_PCT", "150"))
 # Alvo de lucro por operacao: o Grok propoe, o codigo limita a [MIN, MAX] %. Nunca abaixo de 30%.
 DEX_TP_MIN_PCT = float(os.getenv("DEX_TP_MIN_PCT", "10"))           # lucro minimo antes de o bot poder realizar
 DEX_REVIEW_FROM_PCT = float(os.getenv("DEX_REVIEW_FROM_PCT", "10"))  # a partir deste lucro liquido o Grok reavalia a saida

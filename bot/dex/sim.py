@@ -42,7 +42,7 @@ class DexPaper:
             json.dump(self.s, f, indent=1)
 
     # --- compra e venda ---
-    def buy(self, pool, usd, features, conf, reason, target_pct=None, fill=None):
+    def buy(self, pool, usd, features, conf, reason, target_pct=None, fill=None, stop_pct=None, conviction=None):
         """fill: execucao real {tokens, usd, ...}. Sem fill, calcula o que a pool daria (simulacao)."""
         with _lock:
             if usd > self.s["cash"] or pool["id"] in self.s["positions"]:
@@ -56,7 +56,7 @@ class DexPaper:
             pos = {"id": pool["id"], "name": pool["name"], "network": pool["network"], "pool": pool["pool"], "token": pool["token"],
                    "tokens": tokens, "cost": usd, "entry_price": pool["price"], "entry_liq": pool["liq"], "ts": int(time.time()),
                    "last_price": pool["price"], "last_liq": pool["liq"], "peak_pnl_pct": 0.0, "miss": 0,
-                   "target_pct": target_pct or config.DEX_TP_DEFAULT_PCT,
+                   "target_pct": target_pct or config.DEX_TP_DEFAULT_PCT, "stop_pct": stop_pct or config.DEX_STOP_PCT, "conviction": conviction,
                    "features": features, "confidence": conf, "reason": reason[:200]}
             if fill:
                 pos.update(real=True, sig=fill.get("sig"))

@@ -9,7 +9,7 @@ from collections import Counter, deque
 from datetime import datetime
 
 from .. import analyst, config
-from . import data, fx
+from . import data, fx, signals
 from .sim import DexPaper, net_value
 
 
@@ -30,7 +30,7 @@ def _momentum(p):
     b, s = h1.get("buyers") or 0, h1.get("sellers") or 0
     pressure = ((b / (b + s)) - 0.5) * 4 if b + s else 0
     m5 = max(-5.0, min(5.0, (p["chg"].get("m5") or 0))) / 5
-    return chg + accel + pressure + m5
+    return chg + accel + pressure + m5 + 2 * signals.surge(p)    # volume de compra a acelerar em 5 min e 1 h sobe a candidata na fila
 
 
 def _num(x):
@@ -318,11 +318,13 @@ class DexBot:
         candle_summary = {"velas": len(closes), "var_total_pct": round((closes[-1] / closes[0] - 1) * 100, 1),
                           "var_ultimos_5m_pct": round((closes[-1] / closes[-6] - 1) * 100, 1), "queda_maxima_pct": round(max_dd, 1),
                           "volume_ultimos_10m_usd": round(sum(r[5] for r in rows[-10:]))}
+        sig = signals.compute(p)
         feat = {"pool": {k: p[k] for k in ("name", "network", "dex", "price", "liq", "fdv", "vol", "tx", "chg")} | {"idade_min": round(p["age_min"]),
                                                                                     "tipo": "com historia" if p["age_min"] > config.DEX_OLD_AFTER_H * 60 else "nova"},
-                "seguranca": info, "velas_1m": candle_summary,
+                "seguranca": info, "velas_1m": candle_summary, "sinais_dexscreener": sig,
                 "limites": {"ordem_min_eur": config.DEX_MIN_SIZE_EUR, "ordem_max_eur": config.DEX_MAX_SIZE_EUR,
-                            "alvo_min_pct": config.DEX_TP_MIN_PCT, "alvo_max_pct": config.DEX_TP_MAX_PCT}}
+                            "alvo_min_pct": config.DEX_TP_MIN_PCT, "alvo_max_pct": config.DEX_TP_MAX_PCT,
+                            "stop_min_pct": config.DEX_STOP_MIN_PCT, "stop_max_pct": config.DEX_STOP_MAX_PCT}}
         proposal = analyst.analyse_dex(feat, self._memory())
         conf = float(proposal.get("confidence") or 0)
         reason = str(proposal.get("reason", ""))
@@ -340,7 +342,11 @@ class DexBot:
             self._say(f"{p['name']}: sem saldo virtual para a ordem minima de {config.DEX_MIN_SIZE_EUR:g} EUR.")
             return
         target = min(max(_num(proposal.get("target_pct")) or config.DEX_TP_DEFAULT_PCT, config.DEX_TP_MIN_PCT), config.DEX_TP_MAX_PCT)
-        feats = {**feat["pool"], "seguranca": info, "velas_1m": candle_summary}
+        # Stop proprio desta compra: o Grok propoe, a conviccao (confianca, tamanho, volume de compra) limita
+        hi_eur = min(config.DEX_MAX_SIZE_EUR, config.DEX_BUDGET_EUR) if self.live else config.DEX_MAX_SIZE_EUR
+        conv = signals.conviction(conf, size / rate, config.DEX_MIN_SIZE_EUR, hi_eur, sig["forca_compra"])
+        stop = signals.stop_pct(_num(proposal.get("stop_pct")), conv)
+        feats = {**feat["pool"], "seguranca": info, "velas_1m": candle_summary, "sinais": sig}
         fill = None
         if self.live:
             if self._live_blocked():
@@ -355,13 +361,14 @@ class DexBot:
                 sim_txt = "OK" if fill["sim_ok"] else "FALHOU: " + str(fill["sim_err"])
                 self._say(f"[DRY-RUN] {p['name']}: {size / rate:.2f} EUR -> ~{fill['tokens']:.4g} tokens, impacto {fill['impact']:.1f}%, "
                           f"ida e volta perde {fill['roundtrip_loss']:.1f}%, simulacao {sim_txt}. Nada enviado.", "buy")
-                self._note(p, "dry-run", reason, confidence=conf, size_eur=round(size / rate, 2), target_pct=target, seguranca=info, velas=candle_summary)
+                self._note(p, "dry-run", reason, confidence=conf, size_eur=round(size / rate, 2), target_pct=target, stop_pct=stop, conviction=conv,
+                           sinais=sig, seguranca=info, velas=candle_summary)
                 return
-        pos = self.sim.buy(p, size, feats, conf, reason, target, fill=fill)
-        self._note(p, "compra" if pos else "sem_saldo", reason, confidence=conf, size_eur=round(size / rate, 2), target_pct=target,
+        pos = self.sim.buy(p, size, feats, conf, reason, target, fill=fill, stop_pct=stop, conviction=conv)
+        self._note(p, "compra" if pos else "sem_saldo", reason, confidence=conf, size_eur=round(size / rate, 2), target_pct=target, stop_pct=stop, conviction=conv, sinais=sig,
                    risks=str(proposal.get("risks", ""))[:300], seguranca=info, velas=candle_summary)
         if pos:
-            self._say(f"COMPRA {p['name']} ({p['network']}): {size / rate:.2f} EUR ({size:.2f} USD) virtuais, alvo +{target:.0f}%, idade {p['age_min']:.0f} min, liquidez {p['liq']:,.0f} USD. {reason}", "buy")
+            self._say(f"COMPRA {p['name']} ({p['network']}): {size / rate:.2f} EUR ({size:.2f} USD) virtuais, alvo +{target:.0f}%, stop -{stop:.1f}% (conviccao {conv:.0%}, volume de compra {sig['classe']}), idade {p['age_min']:.0f} min, liquidez {p['liq']:,.0f} USD. {reason}", "buy")
 
     # ---------- saidas ----------
     def guard(self):
@@ -412,7 +419,8 @@ class DexBot:
                            "compras_vendas_5m": [(tx.get("m5") or {}).get("buyers"), (tx.get("m5") or {}).get("sellers")],
                            "compras_vendas_1h": [(tx.get("h1") or {}).get("buyers"), (tx.get("h1") or {}).get("sellers")],
                            "volume_5m": vol.get("m5"), "volume_1h": vol.get("h1"),
-                           "liquidez_atual": pos["last_liq"], "liquidez_na_entrada": pos["entry_liq"]}}
+                           "liquidez_atual": pos["last_liq"], "liquidez_na_entrada": pos["entry_liq"]},
+               "sinais_dexscreener": signals.compute(f) if f else None}
         threading.Thread(target=self._review, args=(pid, ctx), daemon=True).start()
 
     def _review(self, pid, ctx):
@@ -463,8 +471,9 @@ class DexBot:
         held_h = (time.time() - pos["ts"]) / 3600
         if pos["entry_liq"] and pos["last_liq"] and pos["last_liq"] < 0.3 * pos["entry_liq"]:
             return self._exit(pos["id"], "liquidez", f"a liquidez caiu para {pos['last_liq'] / pos['entry_liq']:.0%} da entrada")
-        if pnl <= -config.DEX_STOP_PCT:
-            return self._exit(pos["id"], "stop-loss", f"{pnl:+.0f}%")
+        stop = pos.get("stop_pct") or config.DEX_STOP_PCT
+        if pnl <= -stop:
+            return self._exit(pos["id"], "stop-loss", f"{pnl:+.1f}% (stop -{stop:.1f}%)")
         target = pos.get("target_pct") or config.DEX_TP_DEFAULT_PCT
         if pnl >= target:
             return self._exit(pos["id"], "take-profit", f"{pnl:+.0f}% (alvo +{target:.0f}%)")
@@ -520,7 +529,8 @@ class DexBot:
             nv = net_value(p["tokens"], p["last_price"], p["last_liq"])
             positions.append({"id": p["id"], "name": p["name"], "network": p["network"], "pool": p["pool"], "token": p["token"],
                               "entry_price": p["entry_price"], "price": p["last_price"], "sig": p.get("sig"), "reason": p.get("reason"),
-                              "stop_price": self.sim.price_for_pnl(p, -config.DEX_STOP_PCT),
+                              "stop_price": self.sim.price_for_pnl(p, -(p.get("stop_pct") or config.DEX_STOP_PCT)),
+                              "stop_pct": p.get("stop_pct") or config.DEX_STOP_PCT, "conviction": p.get("conviction"),
                               "target_price": self.sim.price_for_pnl(p, p.get("target_pct") or config.DEX_TP_DEFAULT_PCT),
                               "cost": round(p["cost"], 2), "value": round(nv, 2),
                               "pnl_pct": round(self.sim.pnl_pct(p), 1), "peak_pct": round(p["peak_pnl_pct"], 1),
@@ -538,5 +548,5 @@ class DexBot:
                 "today": self._today(), "scan_sec": config.DEX_SCAN_SEC,
                 "mode": "live" if self.live else "paper", "dry_run": bool(self.live and self.live.dry),
                 "rules": {"size_min": config.DEX_MIN_SIZE_EUR, "size_max": config.DEX_MAX_SIZE_EUR, "eurusd": round(fx.eur_usd(), 4),
-                          "tp_min": config.DEX_TP_MIN_PCT, "tp_max": config.DEX_TP_MAX_PCT, "stop": config.DEX_STOP_PCT, "fee": config.DEX_FEE_PCT,
+                          "tp_min": config.DEX_TP_MIN_PCT, "tp_max": config.DEX_TP_MAX_PCT, "stop": config.DEX_STOP_PCT, "stop_min": config.DEX_STOP_MIN_PCT, "stop_max": config.DEX_STOP_MAX_PCT, "fee": config.DEX_FEE_PCT,
                           "min_liq": config.DEX_MIN_LIQ_USD, "max_hold_h": config.DEX_MAX_HOLD_H, "networks": self.networks}}
