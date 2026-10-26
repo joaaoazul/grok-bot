@@ -2,7 +2,7 @@ import json
 
 from openai import OpenAI
 
-from . import config
+from . import budget, config
 
 # A API da xAI e compativel com o SDK da OpenAI
 client = OpenAI(api_key=config.XAI_API_KEY, base_url="https://api.x.ai/v1") if config.XAI_API_KEY else None
@@ -22,14 +22,36 @@ Ignora padroes com menos de 4 casos. Nao inventes padroes. Nao proponhas alterar
 Responde APENAS com JSON: {"licoes": ["...", "..."]}"""
 
 
-def _chat(system, user):
+def _schema(name, props, enums=None):
+    """JSON Schema estrito: todos os campos obrigatorios e nenhum extra, para a resposta nunca vir fora de formato."""
+    spec = {k: ({"type": "string", "enum": enums[k]} if enums and k in enums else {"type": t}) for k, t in props.items()}
+    return {"type": "json_schema", "json_schema": {"name": name, "strict": True, "schema": {
+        "type": "object", "properties": spec, "required": list(spec), "additionalProperties": False}}}
+
+
+SCHEMA_ANALYSE = _schema("decisao", {"action": "string", "symbol": "string", "usdt": "number", "confidence": "number",
+                                     "reason": "string", "risks": "string"}, {"action": ["buy", "sell", "hold"]})
+SCHEMA_DEX = _schema("decisao_dex", {"action": "string", "confidence": "number", "size_eur": "number", "target_pct": "number",
+                                     "stop_pct": "number", "reason": "string", "risks": "string"}, {"action": ["buy", "skip"]})
+SCHEMA_SELL = _schema("decisao_saida", {"action": "string", "confidence": "number", "reason": "string"}, {"action": ["sell", "hold"]})
+SCHEMA_REFLECT = {"type": "json_schema", "json_schema": {"name": "licoes", "strict": True, "schema": {
+    "type": "object", "properties": {"licoes": {"type": "array", "items": {"type": "string"}}},
+    "required": ["licoes"], "additionalProperties": False}}}
+
+
+def _chat(system, user, kind, schema, max_tokens=None):
+    """Uma chamada ao Grok: conta no orcamento diario, exige JSON estrito e limita a resposta."""
     if client is None:
         raise RuntimeError("XAI_API_KEY em falta. Copia .env.example para .env e preenche.")
+    budget.reserve(kind)
     res = client.chat.completions.create(
         model=config.GROK_MODEL,
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": json.dumps(user)}],
-        response_format={"type": "json_object"},
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": json.dumps(user, separators=(",", ":"))}],
+        response_format=schema,
+        max_tokens=max_tokens or config.GROK_MAX_OUTPUT_TOKENS,
     )
+    if res.usage:
+        budget.record_tokens(res.usage.prompt_tokens, res.usage.completion_tokens)
     return json.loads(res.choices[0].message.content)
 
 
@@ -52,7 +74,7 @@ Responde APENAS com JSON: {"action": "sell" | "hold", "confidence": <0 a 1>, "re
 
 
 def review_dex(ctx):
-    return _chat(DEX_SELL, ctx)
+    return _chat(DEX_SELL, ctx, "exit", SCHEMA_SELL)
 
 
 if config.DEX_PROFILE == "aggressive":
@@ -64,16 +86,16 @@ def analyse_dex(candidate, memory=None):
     user = {"candidata": candidate}
     if memory:
         user["historico_do_bot"] = memory
-    return _chat(DEX_SYSTEM, user)
+    return _chat(DEX_SYSTEM, user, "dex_entry", SCHEMA_DEX)
 
 
-def analyse(snapshot, portfolio, question="", memory=None):
+def analyse(snapshot, portfolio, question="", memory=None, kind="entry"):
     user = {"market": snapshot, "portfolio": portfolio, "question": question or "Devo agir agora?"}
     if memory:
         user["historico_do_bot"] = memory
-    return _chat(SYSTEM, user)
+    return _chat(SYSTEM, user, kind, SCHEMA_ANALYSE)
 
 
 def reflect(closed, stats):
-    lessons = _chat(REFLECT, {"operacoes": closed, "estatisticas": stats}).get("licoes", [])
+    lessons = _chat(REFLECT, {"operacoes": closed, "estatisticas": stats}, "reflect", SCHEMA_REFLECT, max_tokens=600).get("licoes", [])
     return [str(x)[:220] for x in lessons if x]

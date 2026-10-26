@@ -53,6 +53,15 @@ Se o browser der **403** ou "sem autorização" em `localhost:5000`, a porta 500
 
 O botão "Pânico" da página `/dex` vende tudo e para. Um ficheiro `data/KILL` bloqueia novas compras.
 
+## Gasto de IA
+
+O Python vigia (preços, stop-loss, take-profit, trailing, perda diária, filtros da DEX) e não gasta tokens. O Grok só é chamado em momentos que contam:
+
+- **Binance**: a cada fecho de vela do `AUTO_TIMEFRAME`, ou antes se o Python detetar um evento (volume, RSI extremo, movimento brusco), no máximo uma consulta extra por vela e por moeda.
+- **DEX**: só pools que passaram os filtros baratos; revisão de saída só com lucro.
+- **Orçamento diário**: `GROK_MAX_CALLS_PER_DAY` para entradas e `GROK_EXIT_RESERVE_CALLS` só para saídas. Passado o teto não há novas entradas, mas os stops continuam. O uso fica em `data/grok_usage.json`.
+- **Respostas**: JSON com schema estrito e `GROK_MAX_OUTPUT_TOKENS` a limitar o tamanho.
+
 ## Interface
 
 - **Vender cada posição**: botões por posição (Binance: 25%, 50%, tudo; DEX: posição inteira), sempre com confirmação. Com `DEX_MODE=live` e `DEX_LIVE_ARMED=true` vende de verdade.

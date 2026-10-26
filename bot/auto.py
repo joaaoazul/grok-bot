@@ -4,7 +4,15 @@ import time
 from collections import deque
 from datetime import datetime
 
-from . import analyst, config, history, journal, ledger, market, risk, scanner, trader
+from . import analyst, budget, config, history, journal, ledger, market, risk, scanner, trader
+
+
+_TF_SEC = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200, "4h": 14400, "1d": 86400}
+
+
+def _candle():
+    """Indice da vela atual do AUTO_TIMEFRAME (as velas da Binance alinham com o relogio UTC)."""
+    return int(time.time() // _TF_SEC.get(config.AUTO_TIMEFRAME, 3600))
 
 
 class AutoTrader:
@@ -17,6 +25,7 @@ class AutoTrader:
         self.cycles = 0
         self.activity = {"kind": "idle", "what": ""}   # idle | scan | think
         self.universe = []
+        self._asked = {}   # simbolo -> (vela, preco, ja_teve_extra) da ultima vez que o Grok foi consultado
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._thread = None
@@ -98,6 +107,23 @@ class AutoTrader:
             return False, pnl_pct, peak
         return True, pnl_pct, peak
 
+    def _trigger(self, symbol, snap):
+        """O Grok so e consultado a cada fecho de vela ou quando o Python detecta um evento. Devolve o motivo, ou None para poupar a chamada."""
+        candle = _candle()
+        last = self._asked.get(symbol)
+        if last is None or last[0] != candle:
+            return "nova vela"
+        if last[2]:
+            return None   # no maximo uma consulta extra por vela e por moeda: um RSI extremo que persiste nao pode repetir a chamada
+        vr, rsi, atr = snap.get("volume_ratio"), snap.get("rsi14"), snap.get("atr_pct")
+        if vr and vr >= config.EVENT_VOLUME_RATIO:
+            return f"volume {vr}x"
+        if rsi is not None and (rsi <= config.EVENT_RSI_LOW or rsi >= config.EVENT_RSI_HIGH):
+            return f"RSI {rsi}"
+        if atr and abs(snap["price"] / last[1] - 1) * 100 >= config.EVENT_MOVE_ATR * atr:
+            return "movimento brusco"
+        return None
+
     def _guard(self):
         """Vigilante rapido: stops e perda diaria a cada poucos segundos, sem chamar o Grok."""
         while not self._stop.wait(config.GUARD_INTERVAL_SEC):
@@ -165,10 +191,19 @@ class AutoTrader:
         else:
             position = f"Sem posicao em {base}."
         snap = market.snapshot(symbol, config.AUTO_TIMEFRAME)
+        why = self._trigger(symbol, snap)
+        if why is None:
+            return   # nada de novo desde a ultima analise: o vigilante em Python continua a tratar dos stops
+        self._say(f"{symbol}: a consultar o Grok ({why}).")
         self.activity = {"kind": "think", "what": f"a analisar {symbol} com o Grok"}
         try:
             proposal = analyst.analyse(snap, self.broker.portfolio(), f"Modo automatico agressivo. {position} Decide agora.",
-                                       memory=journal.memory())
+                                       memory=journal.memory(), kind="exit" if held else "entry")
+            prev = self._asked.get(symbol)
+            self._asked[symbol] = (_candle(), snap["price"], prev is not None and prev[0] == _candle())
+        except budget.BudgetExceeded as exc:
+            self._say(f"{symbol}: {exc}. So os stops em Python continuam ativos.", "alert")
+            return
         finally:
             self.activity = {"kind": "scan", "what": "a vigiar o mercado"}
         action = proposal.get("action")
