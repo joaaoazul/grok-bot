@@ -9,6 +9,15 @@ DATA_DIR = os.getenv("DATA_DIR") or os.path.join(os.path.dirname(os.path.dirname
 
 XAI_API_KEY = os.getenv("XAI_API_KEY")
 GROK_MODEL = os.getenv("GROK_MODEL", "grok-4.5")
+# Orcamento de IA: o Python vigia (stops, precos, filtros) sem gastar tokens; o Grok so e chamado nos momentos que contam.
+GROK_MAX_CALLS_PER_DAY = int(os.getenv("GROK_MAX_CALLS_PER_DAY", "300"))   # analises de entrada e revisoes
+GROK_EXIT_RESERVE_CALLS = int(os.getenv("GROK_EXIT_RESERVE_CALLS", "100"))  # reserva so para decidir saidas de posicoes abertas
+GROK_MAX_OUTPUT_TOKENS = int(os.getenv("GROK_MAX_OUTPUT_TOKENS", "400"))    # as respostas sao JSON curto
+# Binance: so pergunta ao Grok a cada fecho de vela do AUTO_TIMEFRAME ou quando o Python detecta um evento
+EVENT_VOLUME_RATIO = float(os.getenv("EVENT_VOLUME_RATIO", "2.0"))   # volume da ultima vela vs media
+EVENT_RSI_LOW = float(os.getenv("EVENT_RSI_LOW", "25"))
+EVENT_RSI_HIGH = float(os.getenv("EVENT_RSI_HIGH", "75"))
+EVENT_MOVE_ATR = float(os.getenv("EVENT_MOVE_ATR", "1.5"))            # mexeu tantas vezes o ATR desde a ultima analise
 
 MODE = os.getenv("TRADING_MODE", "paper").lower()
 TESTNET = os.getenv("BINANCE_TESTNET", "true").lower() == "true"

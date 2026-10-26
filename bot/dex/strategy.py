@@ -8,7 +8,7 @@ import time
 from collections import Counter, deque
 from datetime import datetime
 
-from .. import analyst, config
+from .. import analyst, budget, config
 from . import data, fx, signals
 from .sim import DexPaper, net_value, _lock as _sim_lock
 
@@ -305,6 +305,9 @@ class DexBot:
         if len(s["positions"]) >= config.DEX_MAX_POSITIONS or room < config.DEX_MIN_SIZE_EUR * fx.eur_usd():
             self._say(f"Sem vaga ou sem saldo livre (a carteira guarda {100 - config.WALLET_USE_PCT:g}% para taxas): a esperar que as posicoes fechem.")
             return
+        if budget.exhausted():
+            self._say(f"Orcamento diario do Grok esgotado ({config.GROK_MAX_CALLS_PER_DAY} chamadas): sem novas entradas ate amanha, os stops continuam.", "alert")
+            return
         pools = {}
         fns = []
         if "dexscreener" in config.DEX_SOURCES:
@@ -335,7 +338,7 @@ class DexBot:
         rejected = ", ".join(f"{k} {v}" for k, v in funnel.most_common() if k not in ("vistas", "passam_filtros"))[:150]
         self._say(f"Procura: {funnel['vistas']} pools, {len(cands)} passam os filtros. Rejeitadas: {rejected or 'nenhuma'}")
         for p in sorted(cands, key=_momentum, reverse=True)[:config.DEX_ANALYSE_PER_SCAN]:
-            if not self.enabled:
+            if not self.enabled or budget.exhausted():
                 return
             try:
                 self._evaluate(p)
